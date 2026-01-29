@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: prirtem_fuel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d prirtem_fuel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    image: prirtem-fuel-server-dev
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    environment:
+      PORT: 3001
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@db:5432/prirtem_fuel
+      JWT_SECRET: change_me_super_secret
+      APP_URL: http://localhost:5173
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3001:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./server:/app
+      - server_node_modules:/app/node_modules
+    command: sh -c "npm install && node src/sql/initIfNeeded.js && npm run dev"
+
+  client:
+    image: prirtem-fuel-client-dev
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    environment:
+      VITE_API_URL: http://localhost:3001
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
+    volumes:
+      - ./client:/app
+      - client_node_modules:/app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+
+volumes:
+  pgdata:
+  server_node_modules:
+  client_node_modules:
