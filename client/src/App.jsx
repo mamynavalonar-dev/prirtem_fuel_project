@@ -6,7 +6,6 @@ import ProtectedRoute from './components/ProtectedRoute.jsx';
 import Layout from './components/Layout.jsx';
 
 import Login from './pages/Login.jsx';
-import Register from './pages/Register.jsx';
 import Forgot from './pages/Forgot.jsx';
 import Reset from './pages/Reset.jsx';
 
@@ -15,7 +14,7 @@ import Fuel from './pages/Fuel.jsx';
 import ImportExcel from './pages/ImportExcel.jsx';
 import FuelRequests from './pages/FuelRequests.jsx';
 import CarRequests from './pages/CarRequests.jsx';
-import CalendarView from './pages/CalendarView.jsx'; // ========== NOUVEAU ==========
+import CalendarView from './pages/CalendarView.jsx';
 import Logbooks from './pages/Logbooks.jsx';
 import LogbookEdit from './pages/LogbookEdit.jsx';
 import PrintFuelRequest from './pages/PrintFuelRequest.jsx';
@@ -23,6 +22,7 @@ import PrintCarRequest from './pages/PrintCarRequest.jsx';
 import PrintLogbook from './pages/PrintLogbook.jsx';
 import Meta from './pages/Meta.jsx';
 import Trash from './pages/Trash.jsx';
+import Users from './pages/Users.jsx'; // <--- IMPORT NÉCESSAIRE
 
 export default function App() {
   return (
@@ -31,7 +31,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        {/* On retire /register pour la sécurité, ou on le garde pour dev uniquement */}
         <Route path="/forgot" element={<Forgot />} />
         <Route path="/reset" element={<Reset />} />
 
@@ -41,17 +41,7 @@ export default function App() {
             <PrintFuelRequest />
           </ProtectedRoute>
         } />
-        <Route path="/print/fuel-request/:id" element={
-          <ProtectedRoute>
-            <PrintFuelRequest />
-          </ProtectedRoute>
-        } />
         <Route path="/print/car/:id" element={
-          <ProtectedRoute>
-            <PrintCarRequest />
-          </ProtectedRoute>
-        } />
-        <Route path="/print/car-request/:id" element={
           <ProtectedRoute>
             <PrintCarRequest />
           </ProtectedRoute>
@@ -67,6 +57,15 @@ export default function App() {
             <Layout><Dashboard /></Layout>
           </ProtectedRoute>
         } />
+        
+        {/* --- CORRECTION: Route Users ajoutée --- */}
+        <Route path="/app/users" element={
+          <ProtectedRoute roles={['ADMIN']}>
+            <Layout><Users /></Layout>
+          </ProtectedRoute>
+        } />
+        {/* --------------------------------------- */}
+
         <Route path="/app/fuel" element={
           <ProtectedRoute>
             <Layout><Fuel /></Layout>
@@ -108,7 +107,6 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        {/* ========== NOUVEAU: CALENDRIER ========== */}
         <Route path="/app/calendar" element={
           <ProtectedRoute>
             <Layout><CalendarView /></Layout>

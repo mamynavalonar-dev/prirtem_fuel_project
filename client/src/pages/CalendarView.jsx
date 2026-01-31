@@ -11,6 +11,9 @@ export default function CalendarView() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [viewModal, setViewModal] = useState(null);
 
+  // ✅ Filtre statut (UI)
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
   useEffect(() => {
     loadRequests();
   }, []);
@@ -27,18 +30,51 @@ export default function CalendarView() {
     }
   }
 
-  // Grouper les demandes par date
+  const STATUS_OPTIONS = useMemo(
+    () => [
+      { value: 'ALL', label: 'Tous' },
+      { value: 'SUBMITTED', label: 'Soumis' },
+      { value: 'APPROVED', label: 'Approuvé (tous)' },
+      { value: 'LOGISTICS_APPROVED', label: 'Visa Logistique' },
+      { value: 'RAF_APPROVED', label: 'Visa RAF (Approuvé)' },
+      { value: 'REJECTED', label: 'Rejeté' },
+    ],
+    []
+  );
+
+  const filterRequestsByStatus = (list) => {
+    if (statusFilter === 'ALL') return list;
+    if (statusFilter === 'APPROVED') {
+      return list.filter((r) => ['LOGISTICS_APPROVED', 'RAF_APPROVED'].includes(r.status));
+    }
+    return list.filter((r) => r.status === statusFilter);
+  };
+
+  // ✅ Normalisation date (robuste si proposed_date contient une heure)
+  const normalizedRequests = useMemo(() => {
+    return (requests || []).map((r) => ({
+      ...r,
+      _dateKey: String(r.proposed_date || '').slice(0, 10),
+    }));
+  }, [requests]);
+
+  // ✅ Appliquer le filtre
+  const filteredRequests = useMemo(() => {
+    return filterRequestsByStatus(normalizedRequests).filter((r) => r._dateKey);
+  }, [normalizedRequests, statusFilter]);
+
+  // ✅ Grouper les demandes par date (sur la liste filtrée)
   const requestsByDate = useMemo(() => {
     const map = {};
-    requests.forEach(req => {
-      const date = req.proposed_date;
+    filteredRequests.forEach((req) => {
+      const date = req._dateKey;
       if (!map[date]) map[date] = [];
       map[date].push(req);
     });
     return map;
-  }, [requests]);
+  }, [filteredRequests]);
 
-  // Générer les jours du mois
+  // ✅ Générer les jours du mois (avec padding fin de mois pour une grille propre)
   const calendarDays = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -48,7 +84,7 @@ export default function CalendarView() {
     const daysInMonth = lastDay.getDate();
 
     const days = [];
-    
+
     // Jours du mois précédent (padding)
     for (let i = 0; i < startDay; i++) {
       days.push({ date: null, isCurrentMonth: false });
@@ -58,6 +94,15 @@ export default function CalendarView() {
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       days.push({ date: dateStr, isCurrentMonth: true });
+    }
+
+    // Padding fin de mois pour compléter la dernière semaine
+    const remainder = days.length % 7;
+    if (remainder !== 0) {
+      const toAdd = 7 - remainder;
+      for (let i = 0; i < toAdd; i++) {
+        days.push({ date: null, isCurrentMonth: false });
+      }
     }
 
     return days;
@@ -86,28 +131,71 @@ export default function CalendarView() {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'SUBMITTED': return '#f59e0b';
-      case 'LOGISTICS_APPROVED': return '#3b82f6';
-      case 'RAF_APPROVED': return '#10b981';
-      case 'REJECTED': return '#ef4444';
-      default: return '#6b7280';
+      case 'SUBMITTED':
+        return '#f59e0b';
+      case 'LOGISTICS_APPROVED':
+        return '#3b82f6';
+      case 'RAF_APPROVED':
+        return '#10b981';
+      case 'REJECTED':
+        return '#ef4444';
+      default:
+        return '#6b7280';
     }
   };
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   return (
     <div>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <h1 style={{ margin: 0 }}>📅 Calendrier Demandes Voiture</h1>
         <div className="row" style={{ gap: 8 }}>
-          <button className="btn btn-outline" onClick={() => changeMonth(-1)}>← Mois précédent</button>
-          <button className="btn btn-outline" onClick={() => setCurrentMonth(new Date())}>Aujourd'hui</button>
-          <button className="btn btn-outline" onClick={() => changeMonth(1)}>Mois suivant →</button>
+          <button className="btn btn-outline" onClick={() => changeMonth(-1)}>
+            ← Mois précédent
+          </button>
+          <button className="btn btn-outline" onClick={() => setCurrentMonth(new Date())}>
+            Aujourd'hui
+          </button>
+          <button className="btn btn-outline" onClick={() => changeMonth(1)}>
+            Mois suivant →
+          </button>
+        </div>
+      </div>
+
+      {/* ✅ Filtre statut + infos */}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="rowBetween" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ fontWeight: 800 }}>Filtrer par statut :</div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(15,23,42,.16)' }}
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+
+            <div className="muted" style={{ fontSize: 13 }}>
+              Affichées: <b>{filteredRequests.length}</b> / Total: <b>{requests.length}</b>
+            </div>
+          </div>
+
+          <button className="btn btn-secondary btn-sm" onClick={loadRequests}>
+            🔄 Rafraîchir
+          </button>
         </div>
       </div>
 
       {/* En-tête mois/année */}
       <div style={{ textAlign: 'center', marginBottom: 16, fontSize: '20px', fontWeight: '700' }}>
-        {currentMonth.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }).replace(/^\w/, c => c.toUpperCase())}
+        {currentMonth
+          .toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+          .replace(/^\w/, (c) => c.toUpperCase())}
       </div>
 
       {loading ? (
@@ -117,42 +205,76 @@ export default function CalendarView() {
           {/* Grille calendrier */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#e5e7eb' }}>
             {/* En-têtes jours */}
-            {['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map(day => (
-              <div key={day} style={{ background: '#f9fafb', padding: '8px', textAlign: 'center', fontWeight: '700', fontSize: '12px' }}>
+            {['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'].map((day) => (
+              <div
+                key={day}
+                style={{
+                  background: '#f9fafb',
+                  padding: '8px',
+                  textAlign: 'center',
+                  fontWeight: '700',
+                  fontSize: '12px',
+                }}
+              >
                 {day}
               </div>
             ))}
 
             {/* Jours du mois */}
             {calendarDays.map((day, idx) => {
-              if (!day.isCurrentMonth) {
-                return <div key={idx} style={{ background: '#fafafa', minHeight: 100 }} />;
+              if (!day.isCurrentMonth || !day.date) {
+                return <div key={idx} style={{ background: '#fafafa', minHeight: 110 }} />;
               }
 
               const dayRequests = requestsByDate[day.date] || [];
-              const dayNumber = parseInt(day.date.split('-')[2]);
-              const isToday = day.date === new Date().toISOString().slice(0, 10);
+              const dayNumber = parseInt(day.date.split('-')[2], 10);
+              const isToday = day.date === todayStr;
 
               return (
                 <div
                   key={idx}
                   style={{
                     background: 'white',
-                    minHeight: 100,
+                    minHeight: 110,
                     padding: '8px',
                     cursor: dayRequests.length > 0 ? 'pointer' : 'default',
                     border: isToday ? '2px solid #3b82f6' : 'none',
-                    position: 'relative'
+                    position: 'relative',
                   }}
                   onClick={() => dayRequests.length > 0 && openDayModal(day.date)}
                 >
                   {/* Numéro du jour */}
-                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: 4, color: isToday ? '#3b82f6' : '#111827' }}>
+                  <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: 6, color: isToday ? '#3b82f6' : '#111827' }}>
                     {dayNumber}
                   </div>
 
-                  {/* Demandes */}
-                  {dayRequests.slice(0, 3).map(req => (
+                  {/* ✅ Badge compteur total (même si <= 3) */}
+                  {dayRequests.length > 0 && (
+                    <div
+                      title="Nombre total de demandes"
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(15,23,42,.85)',
+                        color: '#fff',
+                        fontSize: 11,
+                        fontWeight: 800,
+                        padding: '3px 7px',
+                        borderRadius: 999,
+                        lineHeight: 1.2,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDayModal(day.date);
+                      }}
+                    >
+                      {dayRequests.length}
+                    </div>
+                  )}
+
+                  {/* ✅ Demandes (clic direct sur badge -> détail) */}
+                  {dayRequests.slice(0, 3).map((req) => (
                     <div
                       key={req.id}
                       style={{
@@ -164,16 +286,28 @@ export default function CalendarView() {
                         marginBottom: 2,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer',
                       }}
-                      title={req.objet}
+                      title={`${req.request_no} — ${req.objet || ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openViewModal(req.id);
+                      }}
                     >
                       {req.request_no}
                     </div>
                   ))}
 
+                  {/* Indication si plus de 3 */}
                   {dayRequests.length > 3 && (
-                    <div style={{ fontSize: '10px', color: '#6b7280', marginTop: 2 }}>
+                    <div
+                      style={{ fontSize: '10px', color: '#6b7280', marginTop: 3, textDecoration: 'underline', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDayModal(day.date);
+                      }}
+                    >
                       +{dayRequests.length - 3} autre(s)
                     </div>
                   )}
@@ -209,40 +343,57 @@ export default function CalendarView() {
 
       {/* Modal jour sélectionné */}
       {selectedDate && (
-        <Modal 
-          title={`Demandes du ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`}
+        <Modal
+          title={`Demandes du ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+          })}`}
           onClose={() => setSelectedDate(null)}
           width={700}
         >
           <div>
-            {(requestsByDate[selectedDate] || []).map(req => (
-              <div
-                key={req.id}
-                className="card"
-                style={{ marginBottom: 12, cursor: 'pointer' }}
-                onClick={() => openViewModal(req.id)}
-              >
-                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontWeight: '700' }}>{req.request_no}</div>
-                    <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{req.objet}</div>
-                  </div>
-                  <span 
-                    className="badge" 
-                    style={{ background: getStatusColor(req.status), color: 'white', border: 'none' }}
-                  >
-                    {req.status}
-                  </span>
-                </div>
+            {(requestsByDate[selectedDate] || []).length === 0 ? (
+              <div className="muted" style={{ padding: 10 }}>
+                Aucune demande pour ce jour (selon le filtre).
               </div>
-            ))}
+            ) : (
+              (requestsByDate[selectedDate] || []).map((req) => (
+                <div
+                  key={req.id}
+                  className="card"
+                  style={{ marginBottom: 12, cursor: 'pointer' }}
+                  onClick={() => openViewModal(req.id)}
+                >
+                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: '700' }}>{req.request_no}</div>
+                      <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>{req.objet}</div>
+                    </div>
+
+                    {/* ✅ Badge cliquable (ouvre détail) */}
+                    <span
+                      className="badge"
+                      style={{ background: getStatusColor(req.status), color: 'white', border: 'none', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openViewModal(req.id);
+                      }}
+                      title="Cliquer pour ouvrir le détail"
+                    >
+                      {req.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </Modal>
       )}
 
       {/* Modal détails demande */}
       {viewModal && (
-        <Modal 
+        <Modal
           title={viewModal.loading ? 'Chargement...' : `Détails ${viewModal.data?.request_no || ''}`}
           onClose={() => setViewModal(null)}
           width={720}
@@ -254,7 +405,7 @@ export default function CalendarView() {
               <div className="grid2">
                 <div className="card">
                   <div className="muted">Date proposée</div>
-                  <div style={{ fontWeight: 800 }}>{String(viewModal.data.proposed_date || '')}</div>
+                  <div style={{ fontWeight: 800 }}>{String(viewModal.data.proposed_date || '').slice(0, 10)}</div>
                 </div>
                 <div className="card">
                   <div className="muted">Statut</div>

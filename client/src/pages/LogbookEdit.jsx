@@ -1,389 +1,1088 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
 
-function makeTrip(row_order) {
+const draftKey = (id) => `prirtem:logbook:${id}:draft:v1`;
+
+function safeJsonParse(s) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+function genId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch {}
+  return `${Date.now()}-${Math.random()}`;
+}
+
+/**
+ * Accepte:
+ * - "150" => 150 min
+ * - "2h" => 120
+ * - "2h30" => 150
+ * - "02:30" => 150
+ */
+function parseDurationToMinutes(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  if (/^\d+$/.test(s)) return Number(s);
+
+  // 2h30 / 2h / 2 h 30
+  const m1 = s.match(/^(\d+)\s*h\s*(\d+)?$/i);
+  if (m1) {
+    const h = Number(m1[1] || 0);
+    const min = Number(m1[2] || 0);
+    return h * 60 + min;
+  }
+
+  // 02:30
+  const m2 = s.match(/^(\d+)\s*:\s*(\d+)$/);
+  if (m2) {
+    const h = Number(m2[1] || 0);
+    const min = Number(m2[2] || 0);
+    return h * 60 + min;
+  }
+
+  const n = Number(s.replace(',', '.'));
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function minutesToPretty(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  const nn = Math.round(n);
+  if (nn < 60) return String(nn);
+  const h = Math.floor(nn / 60);
+  const m = nn % 60;
+  return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+}
+
+function mapTripFromApi(t) {
   return {
-    row_order,
-    trip_date: '',
-    depart_time: '',
-    depart_km: '',
-    route_start: '',
-    route_end: '',
-    parking_place: '',
-    parking_duration_min: '',
-    arrival_time: '',
-    arrival_km: '',
-    passengers: '',
-    emargement: '',
-    is_mission: false,
-    mission_label: ''
+    id: (t.id ?? genId()),
+    date: (t.trip_date || '').slice(0, 10),
+    departHeure: t.depart_time || '',
+    departKm: t.depart_km ?? '',
+    debutTrajet: t.route_start || '',
+    finTrajet: t.route_end || '',
+    lieuStationnement: t.parking_place || '',
+    dureeStationnement: t.parking_duration_min ?? '',
+    arriveeHeure: t.arrival_time || '',
+    arriveeKm: t.arrival_km ?? '',
+    personnesTransportees: t.passengers || '',
+    emargement: t.emargement || '',
+    isMission: !!t.is_mission,
+    missionLabel: t.mission_label || '',
   };
+}
+
+function mapSupplyFromApi(s) {
+  return {
+    id: (s.id ?? genId()),
+    date: (s.supply_date || '').slice(0, 10),
+    compteurKm: s.compteur_km ?? '',
+    litres: s.liters ?? '',
+    montantAr: s.montant_ar ?? '',
+  };
+}
+
+function sameId(a, b) {
+  return String(a) === String(b);
 }
 
 export default function LogbookEdit() {
   const { token, user } = useAuth();
   const { id } = useParams();
+
+  const canEdit = ['LOGISTIQUE', 'ADMIN'].includes(user?.role);
+
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+
   const [logbook, setLogbook] = useState(null);
-  const [trips, setTrips] = useState([]);
-  const [supplies, setSupplies] = useState([]);
-  const canEdit = ['LOGISTIQUE','ADMIN'].includes(user?.role);
+
+  // Filtre période (UI only)
+  const [headerFilter, setHeaderFilter] = useState({
+    dateDebut: '',
+    dateFin: '',
+  });
+
+  // Trajets
+  const [trajets, setTrajets] = useState([]);
+  const [showTrajetForm, setShowTrajetForm] = useState(false);
+  // ✅ Correctif: on stocke l'ID du trajet en cours d'édition (et non l'index)
+  const [editingTrajetId, setEditingTrajetId] = useState(null);
+
+  const [currentTrajet, setCurrentTrajet] = useState({
+    date: '',
+    departHeure: '',
+    departKm: '',
+    debutTrajet: '',
+    finTrajet: '',
+    lieuStationnement: '',
+    dureeStationnement: '',
+    arriveeHeure: '',
+    arriveeKm: '',
+    personnesTransportees: '',
+    emargement: '',
+    isMission: false,
+    missionLabel: '',
+  });
+
+  // Carburants
+  const [carburants, setCarburants] = useState([]);
+  const [showCarburantForm, setShowCarburantForm] = useState(false);
+  const [editingCarburant, setEditingCarburant] = useState(null);
+  const [currentCarburant, setCurrentCarburant] = useState({
+    date: '',
+    compteurKm: '',
+    litres: '',
+    montantAr: '',
+  });
+
+  // Corbeille (UI only)
+  const [corbeille, setCorbeille] = useState({ trajets: [], carburants: [] });
+  const [showCorbeille, setShowCorbeille] = useState(false);
+
+  const locked = logbook?.status === 'LOCKED';
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await apiFetch(`/api/logbooks/${id}`, { token }); // API call remains the same
-      setLogbook(data.logbook);
-      setTrips((data.trips || []).map((t) => ({
-        ...t,
-        trip_date: t.trip_date ? t.trip_date.substring(0,10) : '',
-        is_mission: !!t.is_mission
-      })));
-      setSupplies((data.supplies || []).map((s) => ({
-        ...s,
-        supply_date: s.supply_date ? s.supply_date.substring(0,10) : ''
-      })));
+      const data = await apiFetch(`/api/logbooks/${id}`, { token });
+      const book = data.logbook;
+
+      const base = {
+        logbook: book,
+        headerFilter: {
+          dateDebut: (book?.period_start || '').slice(0, 10),
+          dateFin: (book?.period_end || '').slice(0, 10),
+        },
+        trajets: (data.trips || []).map(mapTripFromApi),
+        carburants: (data.supplies || []).map(mapSupplyFromApi),
+        corbeille: { trajets: [], carburants: [] },
+      };
+
+      // Restore draft si dispo
+      const draftRaw = localStorage.getItem(draftKey(id));
+      const draft = draftRaw ? safeJsonParse(draftRaw) : null;
+
+      if (draft?.logbookId !== undefined && sameId(draft.logbookId, id)) {
+        setLogbook({ ...base.logbook, ...draft.logbookEdits });
+        setHeaderFilter(draft.headerFilter || base.headerFilter);
+        setTrajets(Array.isArray(draft.trajets) ? draft.trajets : base.trajets);
+        setCarburants(Array.isArray(draft.carburants) ? draft.carburants : base.carburants);
+        setCorbeille(draft.corbeille || base.corbeille);
+      } else {
+        setLogbook(base.logbook);
+        setHeaderFilter(base.headerFilter);
+        setTrajets(base.trajets);
+        setCarburants(base.carburants);
+        setCorbeille(base.corbeille);
+      }
     } catch (e) {
-      setErr(e.message);
+      setErr(e.message || String(e));
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, [id]);
+  // ✅ Ajout token en dépendance (évite un load avec token périmé après login/refresh)
+  useEffect(() => { load(); }, [id, token]);
 
-  const locked = logbook?.status === 'LOCKED';
+  // Sauvegarde brouillon local (UI)
+  useEffect(() => {
+    if (loading) return;
+    if (!logbook) return;
 
-  function updateTrip(i, key, val) {
-    setTrips((prev) => prev.map((t, idx) => idx === i ? { ...t, [key]: val } : t));
+    const payload = {
+      logbookId: id,
+      savedAt: Date.now(),
+      headerFilter,
+      logbookEdits: {
+        objet: logbook.objet ?? '',
+        chauffeur_signature: logbook.chauffeur_signature ?? '',
+        service_km: logbook.service_km ?? 0,
+        mission_km: logbook.mission_km ?? 0,
+      },
+      trajets,
+      carburants,
+      corbeille,
+    };
+    localStorage.setItem(draftKey(id), JSON.stringify(payload));
+  }, [loading, id, headerFilter, logbook, trajets, carburants, corbeille]);
+
+  function clearLocalDraft() {
+    localStorage.removeItem(draftKey(id));
+    alert('✅ Brouillon local supprimé.');
   }
 
-  function addTrip() {
-    // Logic to determine next row_order
-    const nextOrder = trips.length ? Math.max(...trips.map(t => Number(t.row_order)||0)) + 1 : 1;
-    setTrips((prev) => [...prev, makeTrip(nextOrder)]);
+  // ===== Trajets =====
+  function resetTrajetForm() {
+    setCurrentTrajet({
+      date: '',
+      departHeure: '',
+      departKm: '',
+      debutTrajet: '',
+      finTrajet: '',
+      lieuStationnement: '',
+      dureeStationnement: '',
+      arriveeHeure: '',
+      arriveeKm: '',
+      personnesTransportees: '',
+      emargement: '',
+      isMission: false,
+      missionLabel: '',
+    });
+    setShowTrajetForm(false);
+    setEditingTrajetId(null);
   }
 
-  function removeTrip(i) {
-    setTrips((prev) => prev.filter((_, idx) => idx !== i));
+  function handleAddTrajet() {
+    if (locked || !canEdit) return;
+
+    const isMission = !!currentTrajet.isMission;
+
+    if (!currentTrajet.date) {
+      alert('Veuillez renseigner la date.');
+      return;
+    }
+
+    if (!isMission) {
+      if (currentTrajet.departKm === '' || currentTrajet.arriveeKm === '') {
+        alert('Veuillez remplir au minimum les kilomètres départ/arrivée.');
+        return;
+      }
+    } else {
+      if (!String(currentTrajet.missionLabel || '').trim()) {
+        alert('Veuillez renseigner le libellé de mission.');
+        return;
+      }
+    }
+
+    const item = { ...currentTrajet, id: currentTrajet.id || genId() };
+
+    // ✅ Correctif: update par ID (fiable même si liste filtrée/triée)
+    if (editingTrajetId !== null) {
+      const idx = trajets.findIndex((x) => sameId(x.id, editingTrajetId));
+      if (idx !== -1) {
+        const updated = [...trajets];
+        updated[idx] = item;
+        setTrajets(updated);
+      } else {
+        setTrajets([...trajets, item]);
+      }
+    } else {
+      setTrajets([...trajets, item]);
+    }
+
+    resetTrajetForm();
   }
 
-  function addSupply() {
-    setSupplies((prev) => [...prev, { supply_date: '', compteur_km: '', liters: '', montant_ar: '' }]);
+  // ✅ Correctif: on reçoit l'ID, pas l'index
+  function handleEditTrajet(trajetId) {
+    if (locked || !canEdit) return;
+    const idx = trajets.findIndex((x) => sameId(x.id, trajetId));
+    if (idx === -1) return;
+    setCurrentTrajet(trajets[idx]);
+    setEditingTrajetId(trajetId);
+    setShowTrajetForm(true);
   }
 
-  function removeSupply(i) {
-    setSupplies((prev) => prev.filter((_, idx) => idx !== i));
+  // ✅ Correctif: delete par ID
+  function handleDeleteTrajet(trajetId) {
+    if (locked || !canEdit) return;
+    const idx = trajets.findIndex((x) => sameId(x.id, trajetId));
+    if (idx === -1) return;
+    const trajetToDelete = trajets[idx];
+    setCorbeille((prev) => ({ ...prev, trajets: [...prev.trajets, trajetToDelete] }));
+    setTrajets(trajets.filter((x) => !sameId(x.id, trajetId)));
   }
 
-  function updateSupply(i, key, val) {
-    setSupplies((prev) => prev.map((s, idx) => idx === i ? { ...s, [key]: val } : s));
+  // ===== Carburants =====
+  function resetCarburantForm() {
+    setCurrentCarburant({ date: '', compteurKm: '', litres: '', montantAr: '' });
+    setShowCarburantForm(false);
+    setEditingCarburant(null);
   }
 
+  function handleAddCarburant() {
+    if (locked || !canEdit) return;
+
+    if (!currentCarburant.date || currentCarburant.compteurKm === '' || currentCarburant.litres === '' || currentCarburant.montantAr === '') {
+      alert('Veuillez remplir Date, Compteur, Litres et Montant.');
+      return;
+    }
+
+    const item = { ...currentCarburant, id: currentCarburant.id || genId() };
+
+    if (editingCarburant !== null) {
+      const updated = [...carburants];
+      updated[editingCarburant] = item;
+      setCarburants(updated);
+    } else {
+      setCarburants([...carburants, item]);
+    }
+
+    resetCarburantForm();
+  }
+
+  function handleEditCarburant(index) {
+    if (locked || !canEdit) return;
+    setCurrentCarburant(carburants[index]);
+    setEditingCarburant(index);
+    setShowCarburantForm(true);
+  }
+
+  function handleDeleteCarburant(index) {
+    if (locked || !canEdit) return;
+    const carburantToDelete = carburants[index];
+    setCorbeille((prev) => ({ ...prev, carburants: [...prev.carburants, carburantToDelete] }));
+    setCarburants(carburants.filter((_, i) => i !== index));
+  }
+
+  // ===== Corbeille =====
+  function restaurerTrajet(index) {
+    if (locked || !canEdit) return;
+    const x = corbeille.trajets[index];
+    setTrajets([...trajets, x]);
+    setCorbeille((prev) => ({ ...prev, trajets: prev.trajets.filter((_, i) => i !== index) }));
+  }
+
+  function restaurerCarburant(index) {
+    if (locked || !canEdit) return;
+    const x = corbeille.carburants[index];
+    setCarburants([...carburants, x]);
+    setCorbeille((prev) => ({ ...prev, carburants: prev.carburants.filter((_, i) => i !== index) }));
+  }
+
+  function viderCorbeille() {
+    if (locked || !canEdit) return;
+    if (window.confirm('Êtes-vous sûr de vouloir vider la corbeille ?')) {
+      setCorbeille({ trajets: [], carburants: [] });
+    }
+  }
+
+  // ===== Filtrage =====
+  const trajetsFiltered = useMemo(() => {
+    return trajets.filter((t) => {
+      if (!headerFilter.dateDebut || !headerFilter.dateFin || !t.date) return true;
+      return t.date >= headerFilter.dateDebut && t.date <= headerFilter.dateFin;
+    });
+  }, [trajets, headerFilter]);
+
+  // ===== Stats =====
+  const distanceTotale = useMemo(() => {
+    return trajetsFiltered.reduce((acc, t) => {
+      if (t.isMission) return acc;
+      const dep = parseInt(t.departKm || 0, 10);
+      const arr = parseInt(t.arriveeKm || 0, 10);
+      const d = (Number.isFinite(arr) ? arr : 0) - (Number.isFinite(dep) ? dep : 0);
+      return acc + (Number.isFinite(d) ? d : 0);
+    }, 0);
+  }, [trajetsFiltered]);
+
+  // ===== Save backend =====
   async function saveAll() {
-    if (!canEdit) return;
+    if (!canEdit || locked) return;
+
     try {
-      // 1. Update Header details (Objet, Signature Chauffeur)
+      // Header
       await apiFetch(`/api/logbooks/${id}`, {
-        token, method: 'PUT',
-        body: { objet: logbook.objet, chauffeur_signature: logbook.chauffeur_signature }
+        token,
+        method: 'PUT',
+        body: {
+          objet: logbook.objet ?? '',
+          chauffeur_signature: logbook.chauffeur_signature ?? '',
+          service_km: Number(logbook.service_km || 0),
+          mission_km: Number(logbook.mission_km || 0),
+        },
       });
 
-      // 2. Update Trips
-      const tripsPayload = trips.map((t, idx) => ({
-        ...t, // Pass all trip data
-        row_order: idx + 1, // Re-index row_order
-        // Ensure numerical fields are correctly formatted or null
-        depart_km: t.depart_km === '' ? null : Number(t.depart_km),
-        arrival_km: t.arrival_km === '' ? null : Number(t.arrival_km),
-        parking_duration_min: t.parking_duration_min === '' ? null : Number(t.parking_duration_min)
+      // Trips
+      const tripsPayload = trajets.map((t, idx) => ({
+        trip_date: t.date,
+        depart_time: t.isMission ? null : (t.departHeure || null),
+        depart_km: t.isMission ? null : (t.departKm === '' ? null : Number(t.departKm)),
+        route_start: t.isMission ? null : (t.debutTrajet || null),
+        route_end: t.isMission ? null : (t.finTrajet || null),
+        parking_place: t.isMission ? null : (t.lieuStationnement || null),
+        parking_duration_min: t.isMission ? null : parseDurationToMinutes(t.dureeStationnement),
+        arrival_time: t.isMission ? null : (t.arriveeHeure || null),
+        arrival_km: t.isMission ? null : (t.arriveeKm === '' ? null : Number(t.arriveeKm)),
+        passengers: t.isMission ? null : (t.personnesTransportees || null),
+        emargement: t.isMission ? null : (t.emargement || null),
+        is_mission: !!t.isMission,
+        mission_label: t.isMission ? (t.missionLabel || 'MISSION') : null,
+        row_order: idx + 1,
       }));
-      await apiFetch(`/api/logbooks/${id}/trips`, { token, method: 'PUT', body: { trips: tripsPayload } });
 
-      // 3. Update Supplies
-      const supPayload = supplies
-        .filter(s => s.supply_date || s.compteur_km || s.liters || s.montant_ar) // Filter out empty rows
-        .map(s => ({
-          ...s,
-          compteur_km: Number(s.compteur_km),
-          liters: Number(s.liters),
-          montant_ar: Number(s.montant_ar)
+      await apiFetch(`/api/logbooks/${id}/trips`, {
+        token,
+        method: 'PUT',
+        body: { trips: tripsPayload },
+      });
+
+      // Supplies
+      const suppliesPayload = carburants.map((s) => ({
+        supply_date: s.date,
+        compteur_km: Number(s.compteurKm),
+        liters: Number(s.litres),
+        montant_ar: Number(s.montantAr),
       }));
-      await apiFetch(`/api/logbooks/${id}/supplies`, { token, method: 'PUT', body: { supplies: supPayload } });
-      
+
+      await apiFetch(`/api/logbooks/${id}/supplies`, {
+        token,
+        method: 'PUT',
+        body: { supplies: suppliesPayload },
+      });
+
+      // clear draft local (car synced)
+      localStorage.removeItem(draftKey(id));
+
       alert('✅ Enregistré avec succès');
-      await load(); // Reload data to reflect changes
+      await load();
     } catch (e) {
-      alert('❌ Erreur lors de la sauvegarde : ' + e.message);
+      alert('❌ Erreur lors de la sauvegarde : ' + (e.message || String(e)));
     }
+  }
+
+  async function submitLogbook() {
+    if (!canEdit || locked) return;
+    if (!window.confirm('Soumettre ce journal ?')) return;
+    try {
+      await apiFetch(`/api/logbooks/${id}/submit`, { token, method: 'PATCH' });
+      await load();
+      alert('✅ Journal soumis.');
+    } catch (e) {
+      alert('❌ ' + (e.message || String(e)));
+    }
+  }
+
+  async function lockLogbook() {
+    if (!canEdit || locked) return;
+    if (!window.confirm('Verrouiller définitivement ce journal ? (Aucune modification ensuite)')) return;
+    try {
+      await apiFetch(`/api/logbooks/${id}/lock`, { token, method: 'PATCH' });
+      localStorage.removeItem(draftKey(id));
+      await load();
+      alert('🔒 Journal verrouillé.');
+    } catch (e) {
+      alert('❌ ' + (e.message || String(e)));
+    }
+  }
+
+  function handlePrint() {
+    window.open(`/print/logbook/${id}`, '_blank', 'noopener,noreferrer');
   }
 
   if (loading) return <div className="card">Chargement...</div>;
   if (err) return <div className="card"><div className="error">{err}</div><Link to="/app/logbooks">Retour</Link></div>;
   if (!logbook) return <div className="card">Journal de bord non trouvé.</div>;
 
+  const corbeilleCount = (corbeille.trajets.length + corbeille.carburants.length);
+
   return (
-    <div style={{ padding: 20 }}>
-      {/* ========== HEADER & ACTIONS ========== */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '24px',
-        paddingBottom: '16px',
-        borderBottom: '2px solid #e5e7eb'
-      }}>
-        <div>
-          <div style={{ fontSize: '24px', fontWeight: '800', marginBottom: '8px' }}>
-            JOURNAL DE BORD VOITURE
+    <div className="container">
+      {/* HEADER */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="rowBetween" style={{ alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{
+              background: '#111827',
+              color: '#fff',
+              padding: '10px 14px',
+              borderRadius: 12,
+              minWidth: 88,
+              textAlign: 'center'
+            }}>
+              <div style={{ fontWeight: 900, lineHeight: 1 }}>CEP</div>
+              <div style={{ fontSize: 11, opacity: .9 }}>PRIRTEM</div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>JOURNAL DE BORD VOITURE</div>
+              <div className="muted" style={{ fontSize: 13, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span><b>Immatriculation:</b> {logbook.plate}</span>
+                <span><b>Période:</b> {String(logbook.period_start).slice(0,10)} → {String(logbook.period_end).slice(0,10)}</span>
+                <span className={`badge ${logbook.status === 'LOCKED' ? 'badge-bad' : logbook.status === 'SUBMITTED' ? 'badge-info' : 'badge-warn'}`}>
+                  {logbook.status}
+                </span>
+              </div>
+            </div>
           </div>
-          {/* Info Période & Immatriculation */}
-          <div style={{ display: 'flex', gap: '16px', fontSize: '14px', color: '#6b7280' }}>
-            {/* Il n'y a pas d'immatriculation filtrée ici, donc on affiche le plate */}
-            <span><strong>Période:</strong> Du {logbook.period_start} au {logbook.period_end}</span>
-            <span><strong>Immatriculation:</strong> {logbook.plate}</span>
-            <span className={`badge ${logbook.status === 'LOCKED' ? 'badge-bad' : logbook.status === 'SUBMITTED' ? 'badge-info' : 'badge-warn'}`}>
-              {logbook.status}
-            </span>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => setShowCorbeille((v) => !v)}>
+              🗑️ Corbeille ({corbeilleCount})
+            </button>
+            <button className="btn btn-secondary" onClick={handlePrint}>
+              🖨️ Imprimer
+            </button>
+            <Link className="btn btn-outline" to="/app/logbooks">
+              ← Retour
+            </Link>
+            {canEdit && !locked && (
+              <button className="btn" onClick={saveAll}>
+                💾 Enregistrer
+              </button>
+            )}
           </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <a className="btn btn-secondary" href={`/print/logbook/${id}`} target="_blank" rel="noreferrer">
-            📄 Imprimer
-          </a>
-          <Link className="btn btn-outline" to="/app/logbooks">
-            ← Retour
-          </Link>
-          {canEdit && !locked && (
-             <button className="btn" onClick={saveAll}>
-               💾 Enregistrer
-             </button>
-           )}
         </div>
       </div>
 
-      {/* OBJET DU JOURNAL */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ fontWeight: '700', marginBottom: '12px' }}>Objet</div>
-        <input
-          disabled={!canEdit || locked}
-          value={logbook.objet || ''}
-          onChange={(e) => setLogbook({ ...logbook, objet: e.target.value })}
-          placeholder="Description du journal..."
-          style={{ width: '100%' }}
-        />
+      {/* Infos générales */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="grid2">
+          <div className="field">
+            <div className="label">Objet</div>
+            <input
+              disabled={!canEdit || locked}
+              value={logbook.objet || ''}
+              onChange={(e) => setLogbook({ ...logbook, objet: e.target.value })}
+              placeholder="Description du véhicule/mission"
+            />
+          </div>
+
+          <div className="field">
+            <div className="label">Immatriculation</div>
+            <input disabled value={logbook.plate || ''} />
+          </div>
+        </div>
+
+        <div style={{ height: 12 }} />
+
+        <div className="grid2">
+          <div className="field">
+            <div className="label">Période du (filtre)</div>
+            <input
+              type="date"
+              value={headerFilter.dateDebut || ''}
+              onChange={(e) => setHeaderFilter({ ...headerFilter, dateDebut: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <div className="label">au (filtre)</div>
+            <input
+              type="date"
+              value={headerFilter.dateFin || ''}
+              onChange={(e) => setHeaderFilter({ ...headerFilter, dateFin: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-outline btn-sm" onClick={clearLocalDraft}>
+            ♻️ Supprimer brouillon local
+          </button>
+        </div>
       </div>
 
-      {/* TABLEAU DES TRAJETS */}
-      <div className="card" style={{ overflowX: 'auto', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div style={{ fontWeight: '800', fontSize: '18px' }}>TRAJETS</div>
+      {/* Corbeille */}
+      {showCorbeille && (
+        <div className="card" style={{ marginBottom: 16, border: '2px solid rgba(15,23,42,.18)', background: 'rgba(15,23,42,.02)' }}>
+          <div className="rowBetween" style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>Corbeille</div>
+            <button className="btn btn-danger btn-sm" onClick={viderCorbeille} disabled={!canEdit || locked}>
+              Vider la corbeille
+            </button>
+          </div>
+
+          {corbeille.trajets.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>Trajets supprimés</div>
+              {corbeille.trajets.map((t, i) => (
+                <div key={i} className="card" style={{ padding: 10, marginBottom: 8 }}>
+                  <div className="rowBetween">
+                    <div style={{ fontSize: 13 }}>
+                      <b>{t.date}</b>
+                      {' — '}
+                      {t.isMission ? `MISSION: ${t.missionLabel || ''}` : `${t.debutTrajet} → ${t.finTrajet}`}
+                    </div>
+                    <button className="btn btn-secondary btn-sm" onClick={() => restaurerTrajet(i)} disabled={!canEdit || locked}>
+                      ↩ Restaurer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {corbeille.carburants.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 800, marginBottom: 6 }}>Carburants supprimés</div>
+              {corbeille.carburants.map((c, i) => (
+                <div key={i} className="card" style={{ padding: 10, marginBottom: 8 }}>
+                  <div className="rowBetween">
+                    <div style={{ fontSize: 13 }}>
+                      <b>{c.date}</b> — {c.compteurKm} km — {c.litres} L — {c.montantAr} Ar
+                    </div>
+                    <button className="btn btn-secondary btn-sm" onClick={() => restaurerCarburant(i)} disabled={!canEdit || locked}>
+                      ↩ Restaurer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {corbeille.trajets.length === 0 && corbeille.carburants.length === 0 && (
+            <div className="muted" style={{ textAlign: 'center', padding: 10 }}>La corbeille est vide</div>
+          )}
+        </div>
+      )}
+
+      {/* Trajets */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="rowBetween" style={{ marginBottom: 10 }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Trajets</div>
           {canEdit && !locked && (
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn btn-sm" onClick={addTrip}>+ Trajet</button>
-              {/* Option pour ajouter une ligne "MISSION" */}
-              <button className="btn btn-secondary btn-sm" onClick={() => setTrips(prev => [...prev, {...makeTrip(prev.length + 1), is_mission: true, mission_label: "MISSION"}])}>+ MISSION</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setCurrentTrajet((p) => ({ ...p, isMission: false }));
+                  setShowTrajetForm((v) => !v);
+                }}
+              >
+                ➕ Ajouter un trajet
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setCurrentTrajet({
+                    ...currentTrajet,
+                    date: headerFilter.dateDebut || currentTrajet.date || '',
+                    isMission: true,
+                    missionLabel: currentTrajet.missionLabel || 'MISSION',
+                    departHeure: '',
+                    departKm: '',
+                    debutTrajet: '',
+                    finTrajet: '',
+                    lieuStationnement: '',
+                    dureeStationnement: '',
+                    arriveeHeure: '',
+                    arriveeKm: '',
+                    personnesTransportees: '',
+                    emargement: '',
+                  });
+                  setEditingTrajetId(null);
+                  setShowTrajetForm(true);
+                }}
+              >
+                🎯 Ajouter mission
+              </button>
             </div>
           )}
         </div>
 
-        <table className="table" style={{ fontSize: '12px', width: '100%' }}>
-          <thead>
-            <tr>
-              <th rowSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>DATE</th>
-              <th colSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700', textAlign: 'center' }}>DÉPART</th>
-              <th colSpan="4" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700', textAlign: 'center' }}>ITINÉRAIRES</th>
-              <th colSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700', textAlign: 'center' }}>ARRIVÉE</th>
-              <th rowSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>PERSONNES TRANSPORTÉES</th>
-              <th rowSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>ÉMARGEMENT</th>
-              {canEdit && !locked && (
-                <th rowSpan="2" style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700', width: '60px' }}>Actions</th>
+        {/* Form trajet */}
+        {showTrajetForm && (
+          <div className="card" style={{ marginBottom: 12, border: '2px solid rgba(37,99,235,.18)', background: 'rgba(37,99,235,.04)' }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>
+              {editingTrajetId !== null ? 'Modifier' : 'Nouveau'} {currentTrajet.isMission ? ' (MISSION)' : ''}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+              <div className="field">
+                <div className="label">Date *</div>
+                <input
+                  type="date"
+                  value={currentTrajet.date}
+                  onChange={(e) => setCurrentTrajet({ ...currentTrajet, date: e.target.value })}
+                  disabled={!canEdit || locked}
+                />
+              </div>
+
+              {!currentTrajet.isMission && (
+                <>
+                  <div className="field">
+                    <div className="label">Départ - Heure</div>
+                    <input
+                      type="time"
+                      value={currentTrajet.departHeure}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, departHeure: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Départ - Km *</div>
+                    <input
+                      type="number"
+                      value={currentTrajet.departKm}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, departKm: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                </>
               )}
-            </tr>
-            <tr>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Heures</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Km</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Début de trajet</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Fin de trajet</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Lieu stationnement</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Durée (min)</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Heures</th>
-              <th style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: '600', fontSize: '12px' }}>Km</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trips.length === 0 && (
-              <tr><td colSpan={canEdit && !locked ? 12 : 11} style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>Aucun trajet</td></tr>
-            )}
-            {/* Affichage des trajets */}
-            {trips.map((t, i) => (
-              t.is_mission ? ( // Ligne MISSION spéciale
-                <tr key={i} style={{ background: '#ecfdf5' }}>
-                  <td colSpan={canEdit && !locked ? 11 : 10} style={{ border: '1px solid #e5e7eb', padding: '12px' }}>
-                    <strong style={{ fontSize: '14px' }}>🎯 MISSION</strong>
-                    {canEdit && !locked ? (
-                      <input
-                        value={t.mission_label || ''}
-                        onChange={(e) => updateTrip(i, 'mission_label', e.target.value)}
-                        placeholder="Détails mission..."
-                        style={{ marginLeft: '12px', width: 'calc(100% - 120px)', border: '1px solid #6ee7b7', borderRadius: '4px', padding: '6px' }}
-                      />
-                    ) : (
-                      <span style={{ marginLeft: '12px', fontWeight: '600' }}>{t.mission_label || ''}</span>
-                    )}
-                  </td>
-                  {canEdit && !locked && (
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center' }}>
-                      <button className="btn btn-danger btn-sm" onClick={() => removeTrip(i)}>✕</button>
-                    </td>
-                  )}
-                </tr>
-              ) : ( // Ligne de trajet normale
-                <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f9fafb' }}>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="date" value={t.trip_date} onChange={(e) => updateTrip(i, 'trip_date', e.target.value)} disabled={!canEdit || locked} style={{ width: '90px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="time" value={t.depart_time} onChange={(e) => updateTrip(i, 'depart_time', e.target.value)} disabled={!canEdit || locked} style={{ width: '80px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="number" value={t.depart_km} onChange={(e) => updateTrip(i, 'depart_km', e.target.value)} disabled={!canEdit || locked} style={{ width: '70px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.route_start} onChange={(e) => updateTrip(i, 'route_start', e.target.value)} disabled={!canEdit || locked} style={{ border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.route_end} onChange={(e) => updateTrip(i, 'route_end', e.target.value)} disabled={!canEdit || locked} style={{ border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.parking_place} onChange={(e) => updateTrip(i, 'parking_place', e.target.value)} disabled={!canEdit || locked} placeholder="Lieu..." style={{ width: '100%', border: 'none', background: 'transparent', padding: '4px', marginBottom: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.parking_duration_min} onChange={(e) => updateTrip(i, 'parking_duration_min', e.target.value)} disabled={!canEdit || locked} placeholder="Min" style={{ width: '60px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="time" value={t.arrival_time} onChange={(e) => updateTrip(i, 'arrival_time', e.target.value)} disabled={!canEdit || locked} style={{ width: '80px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="number" value={t.arrival_km} onChange={(e) => updateTrip(i, 'arrival_km', e.target.value)} disabled={!canEdit || locked} style={{ width: '70px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.passengers} onChange={(e) => updateTrip(i, 'passengers', e.target.value)} disabled={!canEdit || locked} style={{ border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input value={t.emargement} onChange={(e) => updateTrip(i, 'emargement', e.target.value)} disabled={!canEdit || locked} style={{ border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  {canEdit && !locked && (
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center' }}>
-                      <button className="btn btn-danger btn-sm" onClick={() => removeTrip(i)}>✕</button>
-                    </td>
-                  )}
-                </tr>
-              )
-            ))}
-          </tbody>
-        </table>
-        {!locked && <button className="btn btn-secondary btn-sm" style={{ marginTop: 10 }} onClick={addTrip}>+ Trajet</button>}
-      </div>
 
-      {/* APPROVISIONNEMENT CARBURANT */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <div style={{ fontWeight: '800', fontSize: '18px' }}>APPROVISIONNEMENT CARBURANT</div>
-          {canEdit && !locked && <button className="btn btn-sm" onClick={addSupply}>+ Ligne</button>}
-        </div>
+              {currentTrajet.isMission && (
+                <div className="field" style={{ gridColumn: 'span 2' }}>
+                  <div className="label">Libellé mission *</div>
+                  <input
+                    value={currentTrajet.missionLabel}
+                    onChange={(e) => setCurrentTrajet({ ...currentTrajet, missionLabel: e.target.value })}
+                    disabled={!canEdit || locked}
+                    placeholder="Détails mission..."
+                  />
+                </div>
+              )}
 
-        <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead style={{ background: '#f9fafb' }}>
+              {!currentTrajet.isMission && (
+                <>
+                  <div className="field">
+                    <div className="label">Début de trajet</div>
+                    <input
+                      value={currentTrajet.debutTrajet}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, debutTrajet: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Fin de trajet</div>
+                    <input
+                      value={currentTrajet.finTrajet}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, finTrajet: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Lieu de stationnement</div>
+                    <input
+                      value={currentTrajet.lieuStationnement}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, lieuStationnement: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <div className="label">Durée stationnement (min / 2h30)</div>
+                    <input
+                      value={currentTrajet.dureeStationnement}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, dureeStationnement: e.target.value })}
+                      disabled={!canEdit || locked}
+                      placeholder="Ex: 150 ou 2h30"
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Arrivée - Heure</div>
+                    <input
+                      type="time"
+                      value={currentTrajet.arriveeHeure}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, arriveeHeure: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Arrivée - Km *</div>
+                    <input
+                      type="number"
+                      value={currentTrajet.arriveeKm}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, arriveeKm: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <div className="label">Personnes transportées</div>
+                    <input
+                      value={currentTrajet.personnesTransportees}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, personnesTransportees: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Émargement</div>
+                    <input
+                      value={currentTrajet.emargement}
+                      onChange={(e) => setCurrentTrajet({ ...currentTrajet, emargement: e.target.value })}
+                      disabled={!canEdit || locked}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={handleAddTrajet} disabled={!canEdit || locked}>
+                💾 {editingTrajetId !== null ? 'Mettre à jour' : 'Enregistrer'}
+              </button>
+              <button className="btn btn-outline" onClick={resetTrajetForm}>
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Table trajets */}
+        <div className="tableWrap">
+          <table className="table" style={{ minWidth: 1100, fontSize: 12 }}>
+            <thead>
               <tr>
-                <th style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>Date</th>
-                <th style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>Compteur Km</th>
-                <th style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>Litre</th>
-                <th style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700' }}>Montant (Ar)</th>
-                {canEdit && !locked && <th style={{ border: '1px solid #e5e7eb', padding: '10px', fontWeight: '700', width: '80px' }}>Actions</th> }
+                <th>DATE</th>
+                <th>DÉPART (H)</th>
+                <th>DÉPART (KM)</th>
+                <th>DÉBUT</th>
+                <th>FIN</th>
+                <th>LIEU STATION.</th>
+                <th>DURÉE</th>
+                <th>ARRIVÉE (H)</th>
+                <th>ARRIVÉE (KM)</th>
+                <th>PERSONNES</th>
+                <th>ÉMARGEMENT</th>
+                {canEdit && !locked && <th style={{ width: 110 }}>ACTIONS</th>}
               </tr>
             </thead>
             <tbody>
-              {supplies.length === 0 && <tr><td colSpan={canEdit && !locked ? 5 : 4} style={{ padding: '24px', textAlign: 'center', color: '#9ca3af' }}>Aucun approvisionnement</td></tr>}
-              {supplies.map((s, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f9fafb' }}>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="date" value={s.supply_date} onChange={(e) => updateSupply(i, 'supply_date', e.target.value)} disabled={!canEdit || locked} style={{ width: '100%', border: 'none', background: 'transparent', padding: '4px' }}/>
+              {trajetsFiltered.length === 0 ? (
+                <tr>
+                  <td colSpan={canEdit && !locked ? 12 : 11} className="muted" style={{ padding: 16 }}>
+                    Aucun trajet enregistré.
                   </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="number" value={s.compteur_km} onChange={(e) => updateSupply(i, 'compteur_km', e.target.value)} disabled={!canEdit || locked} style={{ width: '100px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="number" step="0.01" value={s.liters} onChange={(e) => updateSupply(i, 'liters', e.target.value)} disabled={!canEdit || locked} style={{ width: '100px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  <td style={{ border: '1px solid #e5e7eb', padding: '8px' }}>
-                    <input type="number" value={s.montant_ar} onChange={(e) => updateSupply(i, 'montant_ar', e.target.value)} disabled={!canEdit || locked} style={{ width: '120px', border: 'none', background: 'transparent', padding: '4px' }}/>
-                  </td>
-                  {canEdit && !locked && (
-                    <td style={{ border: '1px solid #e5e7eb', padding: '8px', textAlign: 'center' }}>
-                      <button className="btn btn-danger btn-sm" onClick={() => removeSupply(i)}>✕</button>
-                    </td>
-                  )}
                 </tr>
-              ))}
+              ) : (
+                trajetsFiltered.map((t) => (
+                  t.isMission ? (
+                    <tr key={t.id} style={{ background: 'rgba(16,185,129,.10)' }}>
+                      <td><b>{t.date}</b></td>
+                      <td colSpan={canEdit && !locked ? 10 : 9}>
+                        <b>🎯 MISSION</b> — {t.missionLabel || ''}
+                      </td>
+                      {canEdit && !locked && (
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-outline btn-sm" onClick={() => handleEditTrajet(t.id)}>✏️</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteTrajet(t.id)}>🗑️</button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ) : (
+                    <tr key={t.id}>
+                      <td>{t.date}</td>
+                      <td>{t.departHeure}</td>
+                      <td>{t.departKm}</td>
+                      <td>{t.debutTrajet}</td>
+                      <td>{t.finTrajet}</td>
+                      <td>{t.lieuStationnement}</td>
+                      <td>{minutesToPretty(t.dureeStationnement)}</td>
+                      <td>{t.arriveeHeure}</td>
+                      <td>{t.arriveeKm}</td>
+                      <td>{t.personnesTransportees}</td>
+                      <td>{t.emargement}</td>
+                      {canEdit && !locked && (
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-outline btn-sm" onClick={() => handleEditTrajet(t.id)}>✏️</button>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleDeleteTrajet(t.id)}>🗑️</button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* RÉSUMÉ & ACTIONS */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div style={{ fontWeight: '800', fontSize: '18px', marginBottom: '16px' }}>RÉSUMÉ</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-          {/* Kilométrage Services / Mission (non editable pour le moment car manuel) */}
-          <div>
-            <div className="label">Services (km) - manuel</div>
-            <input disabled value={logbook.service_km ?? 0} style={{ width: '100%', background: '#f3f4f6' }}/>
+      {/* Approvisionnement Carburant */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="rowBetween" style={{ marginBottom: 10 }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Approvisionnement Carburant</div>
+          {canEdit && !locked && (
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowCarburantForm((v) => !v)}>
+              ➕ Ajouter carburant
+            </button>
+          )}
+        </div>
+
+        {showCarburantForm && (
+          <div className="card" style={{ marginBottom: 12, border: '2px solid rgba(16,185,129,.18)', background: 'rgba(16,185,129,.04)' }}>
+            <div style={{ fontWeight: 800, marginBottom: 10 }}>
+              {editingCarburant !== null ? 'Modifier' : 'Nouvel'} approvisionnement
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
+              <div className="field">
+                <div className="label">Date *</div>
+                <input
+                  type="date"
+                  value={currentCarburant.date}
+                  onChange={(e) => setCurrentCarburant({ ...currentCarburant, date: e.target.value })}
+                  disabled={!canEdit || locked}
+                />
+              </div>
+              <div className="field">
+                <div className="label">Compteur Km *</div>
+                <input
+                  type="number"
+                  value={currentCarburant.compteurKm}
+                  onChange={(e) => setCurrentCarburant({ ...currentCarburant, compteurKm: e.target.value })}
+                  disabled={!canEdit || locked}
+                />
+              </div>
+              <div className="field">
+                <div className="label">Litres *</div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={currentCarburant.litres}
+                  onChange={(e) => setCurrentCarburant({ ...currentCarburant, litres: e.target.value })}
+                  disabled={!canEdit || locked}
+                />
+              </div>
+              <div className="field">
+                <div className="label">Montant (Ar) *</div>
+                <input
+                  type="number"
+                  value={currentCarburant.montantAr}
+                  onChange={(e) => setCurrentCarburant({ ...currentCarburant, montantAr: e.target.value })}
+                  disabled={!canEdit || locked}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={handleAddCarburant} disabled={!canEdit || locked}>
+                💾 {editingCarburant !== null ? 'Mettre à jour' : 'Enregistrer'}
+              </button>
+              <button className="btn btn-outline" onClick={resetCarburantForm}>
+                Annuler
+              </button>
+            </div>
           </div>
-          <div>
-            <div className="label">Mission (km) - manuel</div>
-            <input disabled value={logbook.mission_km ?? 0} style={{ width: '100%', background: '#f3f4f6' }}/>
-          </div>
-          <div>
-            <div className="label">Signature Chauffeur</div>
-            <input
-              disabled={!canEdit || locked}
-              value={logbook.chauffeur_signature || ''}
-              onChange={(e) => setLogbook({ ...logbook, chauffeur_signature: e.target.value })}
-              placeholder="Nom du chauffeur"
-              style={{ width: '100%' }}
-            />
-          </div>
+        )}
+
+        <div className="tableWrap">
+          <table className="table" style={{ minWidth: 820, fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Compteur Km</th>
+                <th>Litres</th>
+                <th>Montant (Ar)</th>
+                {canEdit && !locked && <th style={{ width: 110 }}>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {carburants.length === 0 ? (
+                <tr>
+                  <td colSpan={canEdit && !locked ? 5 : 4} className="muted" style={{ padding: 16 }}>
+                    Aucun approvisionnement enregistré.
+                  </td>
+                </tr>
+              ) : (
+                carburants.map((c, index) => (
+                  <tr key={c.id}>
+                    <td>{c.date}</td>
+                    <td>{c.compteurKm}</td>
+                    <td>{c.litres}</td>
+                    <td>{c.montantAr}</td>
+                    {canEdit && !locked && (
+                      <td>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-outline btn-sm" onClick={() => handleEditCarburant(index)}>✏️</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCarburant(index)}>🗑️</button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* ACTIONS DE FLUX (Soumettre, Verrouiller etc.) */}
-      {canEdit && !locked && (
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-          {logbook.status === 'DRAFT' && (
-            <button className="btn btn-secondary" onClick={() => alert('Fonctionnalité à implémenter : soumettre')}>
-              📤 Soumettre
-            </button>
-          )}
-          <button className="btn btn-danger" onClick={() => alert('Fonctionnalité à implémenter : verrouiller')}>
-            🔒 Verrouiller définitivement
-          </button>
+      {/* Footer stats + résumé */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+          <div className="card" style={{ padding: 12, background: 'rgba(37,99,235,.06)' }}>
+            <div className="label">Total trajets (filtrés)</div>
+            <div style={{ fontSize: 26, fontWeight: 900 }}>{trajetsFiltered.length}</div>
+          </div>
+
+          <div className="card" style={{ padding: 12, background: 'rgba(16,185,129,.06)' }}>
+            <div className="label">Total carburants</div>
+            <div style={{ fontSize: 26, fontWeight: 900 }}>{carburants.length}</div>
+          </div>
+
+          <div className="card" style={{ padding: 12, background: 'rgba(245,158,11,.10)' }}>
+            <div className="label">Distance totale (approx.)</div>
+            <div style={{ fontSize: 26, fontWeight: 900 }}>{distanceTotale} km</div>
+          </div>
         </div>
-      )}
-      
-      {/* Message si journal verrouillé */}
-      {locked && (
-        <div style={{ padding: '16px', background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '8px', color: '#b91c1c', fontWeight: '600', textAlign: 'center' }}>
-          🔒 Ce journal est VERROUILLÉ - Aucune modification n'est possible
+
+        <div style={{ height: 12 }} />
+
+        <div className="grid2">
+          <div className="field">
+            <div className="label">Services (km) - manuel</div>
+            <input
+              type="number"
+              disabled={!canEdit || locked}
+              value={logbook.service_km ?? 0}
+              onChange={(e) => setLogbook({ ...logbook, service_km: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <div className="label">Mission (km) - manuel</div>
+            <input
+              type="number"
+              disabled={!canEdit || locked}
+              value={logbook.mission_km ?? 0}
+              onChange={(e) => setLogbook({ ...logbook, mission_km: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div style={{ height: 12 }} />
+
+        <div className="field">
+          <div className="label">Signature Chauffeur</div>
+          <input
+            disabled={!canEdit || locked}
+            value={logbook.chauffeur_signature || ''}
+            onChange={(e) => setLogbook({ ...logbook, chauffeur_signature: e.target.value })}
+            placeholder="Nom du chauffeur"
+          />
+        </div>
+      </div>
+
+      {/* Actions de flux */}
+      {canEdit && !locked && (
+        <div className="rowBetween" style={{ marginBottom: 18 }}>
+          <div className="muted" style={{ fontSize: 13 }}>
+            Astuce: tu peux travailler puis cliquer <b>Enregistrer</b>. Le brouillon local évite de perdre en cas de refresh.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {logbook.status === 'DRAFT' && (
+              <button className="btn btn-secondary" onClick={submitLogbook}>
+                📤 Soumettre
+              </button>
+            )}
+            <button className="btn btn-danger" onClick={lockLogbook}>
+              🔒 Verrouiller définitivement
+            </button>
+          </div>
         </div>
       )}
 
-      {err && <div style={{ marginTop: '16px', padding: '12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '8px', color: '#b91c1c' }}>❌ {err}</div>}
+      {locked && (
+        <div className="card" style={{ border: '2px solid rgba(239,68,68,.35)', background: 'rgba(239,68,68,.06)' }}>
+          <div style={{ fontWeight: 900, color: '#b91c1c', textAlign: 'center' }}>
+            🔒 Ce journal est VERROUILLÉ — aucune modification n’est possible.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

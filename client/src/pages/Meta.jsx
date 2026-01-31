@@ -30,6 +30,13 @@ function InlineRowEditor({ row, columns, onSave, onDelete }) {
                 checked={!!draft[c.key]}
                 onChange={(e) => setField(c.key, e.target.checked)}
               />
+            ) : c.type === 'number' ? (
+              <input
+                className="input"
+                type="number"
+                value={draft[c.key] ?? ''}
+                onChange={(e) => setField(c.key, e.target.value)}
+              />
             ) : (
               <input
                 className="input"
@@ -38,7 +45,11 @@ function InlineRowEditor({ row, columns, onSave, onDelete }) {
               />
             )
           ) : (
-            <span>{row[c.key] ?? ''}</span>
+            <span>
+              {c.type === 'checkbox' 
+                ? (row[c.key] ? '✅' : '❌') 
+                : (row[c.key] ?? '')}
+            </span>
           )}
         </td>
       ))}
@@ -140,11 +151,11 @@ function Section({ title, fetchUrl, createUrl, updateUrl, deleteUrl, columns, cr
       {err && <div className="muted" style={{ color: '#b91c1c' }}>{err}</div>}
 
       <div className="card" style={{ marginTop: 12, background: '#fafafa' }}>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
+        <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
           {columns
             .filter((c) => c.creatable)
             .map((c) => (
-              <div key={c.key} className="field" style={{ minWidth: 200 }}>
+              <div key={c.key} className="field" style={{ minWidth: 150 }}>
                 <div className="label">{c.label}</div>
                 {c.type === 'checkbox' ? (
                   <input
@@ -155,6 +166,7 @@ function Section({ title, fetchUrl, createUrl, updateUrl, deleteUrl, columns, cr
                 ) : (
                   <input
                     className="input"
+                    type={c.type || 'text'}
                     value={create[c.key] ?? ''}
                     onChange={(e) => createField(c.key, e.target.value)}
                   />
@@ -219,14 +231,15 @@ export default function Meta() {
         createUrl="/api/meta/vehicles"
         updateUrl={(id) => `/api/meta/vehicles/${id}`}
         deleteUrl={(id) => `/api/meta/vehicles/${id}`}
-        createInitial={{ plate: '', label: '' }}
+        createInitial={{ plate: '', label: '', brand: '', model: '', energy_type: '', seats: 5 }}
         columns={[
           { key: 'plate', label: 'Immatriculation', editable: true, creatable: true },
-          { key: '', label: 'Marque et Type', editable: true, creatable: true },
-          { key: '', label: 'Source énergie', editable: true, creatable: true },
-          { key: '', label: 'Nombre de place', editable: true, creatable: true },
-          { key: 'label', label: 'Libellé', editable: true, creatable: true },
-          { key: 'is_active', label: 'Actif', editable: false, creatable: false }
+          { key: 'brand', label: 'Marque', editable: true, creatable: true },
+          { key: 'model', label: 'Modèle', editable: true, creatable: true },
+          { key: 'energy_type', label: 'Carburant', editable: true, creatable: true },
+          { key: 'seats', label: 'Places', editable: true, creatable: true, type: 'number' },
+          { key: 'label', label: 'Libellé (ex: Couleur)', editable: true, creatable: true },
+          { key: 'is_active', label: 'Actif', editable: false, creatable: false, type: 'checkbox' }
         ]}
       />
 
@@ -240,7 +253,6 @@ export default function Meta() {
         columns={[
           { key: 'full_name', label: 'Nom complet', editable: true, creatable: true },
           { key: 'phone', label: 'Téléphone', editable: true, creatable: true },
-          { key: '', label: 'Voiture assigner', editable: true, creatable: true },
           { key: 'is_active', label: 'Actif', editable: true, creatable: true, type: 'checkbox' }
         ]}
       />
