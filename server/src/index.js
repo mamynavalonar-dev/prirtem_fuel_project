@@ -14,16 +14,15 @@ const fuelRequestsRoutes = require('./routes/fuelRequests');
 const carRequestsRoutes = require('./routes/carRequests');
 const logbooksRoutes = require('./routes/logbooks');
 const trashRoutes = require('./routes/trash');
-const notificationsRoutes = require('./routes/notifications'); // ========== NOUVEAU ==========
+const notificationsRoutes = require('./routes/notifications');
+const usersRoutes = require('./routes/users'); // <--- AJOUT
 
 const app = express();
-
 const corsOptions = {
   origin: process.env.CLIENT_URL || true, 
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 };
-
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -40,12 +39,12 @@ app.use('/api/requests/fuel', fuelRequestsRoutes);
 app.use('/api/requests/car', carRequestsRoutes);
 app.use('/api/logbooks', logbooksRoutes);
 app.use('/api/trash', trashRoutes);
-app.use('/api/notifications', notificationsRoutes); // ========== NOUVEAU ==========
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/users', usersRoutes); // <--- AJOUT
 
 // Serve Static Files (Production / Docker)
 const publicDir = path.join(__dirname, '..', 'public');
 const publicIndex = path.join(publicDir, 'index.html');
-
 if (fs.existsSync(publicIndex)) {
   app.use(express.static(publicDir));
   app.get(/^\/(?!api).*/, (req, res) => res.sendFile(publicIndex));

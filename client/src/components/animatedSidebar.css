@@ -1,0 +1,280 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap");
+
+:root {
+  --asb-primary: #763fee;
+  --asb-secondary: #f7f7fb; /* Doit matcher le fond de ton app (--bg dans styles.css) */
+  --asb-text: #ffffff;
+  
+  --asb-width-collapsed: 80px;
+  --asb-width-expanded: 260px;
+  
+  --asb-item-height: 56px;
+  --asb-indicator-curve-size: 30px; /* Taille de la courbe liquide */
+}
+
+
+/* Container Principal */
+.asb-sidebar {
+  position: fixed; /* Fixé pour rester visible au scroll */
+  top: 16px;
+  left: 16px;
+  bottom: 16px;
+  width: var(--asb-width-collapsed);
+  height: calc(100vh - 32px);
+  background: var(--asb-primary);
+  border-radius: 20px;
+  padding: 20px 0;  
+  transition: width 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+  overflow: visible; /* Important pour le toggle button qui dépasse */
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+}
+
+.asb-sidebar.active {
+  width: var(--asb-width-expanded);
+}
+
+/* Bouton Toggle (Flèche) */
+.asb-toggle {
+  position: absolute;
+  top: 40px;
+  right: -18px; /* Dépasse du cadre */
+  width: 36px;
+  height: 36px;
+  background-color: var(--asb-primary);
+  border: 4px solid var(--asb-secondary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #fff;
+  z-index: 101;
+  font-size: 20px;
+  transition: transform 0.5s;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.asb-sidebar.active .asb-toggle {
+  transform: rotate(180deg);
+}
+
+/* Liste des menus */
+.asb-menu-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 40px;
+  padding-left: 10px; /* Espace pour la courbe */
+  flex-grow: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  /* --- CORRECTION SCROLLBAR --- */
+  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;  /* IE/Edge */
+}
+
+/* Cacher scrollbar Chrome/Safari/Webkit */
+.asb-menu-list::-webkit-scrollbar {
+  display: none;
+}
+/* Items du menu */
+.asb-item {
+  position: relative;
+  list-style: none;
+  z-index: 2; /* Au-dessus de l'indicateur */
+}
+
+.asb-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--asb-item-height);
+  text-decoration: none;
+  color: var(--asb-text);
+  border-top-left-radius: 30px;
+  border-bottom-left-radius: 30px;
+  transition: 0.3s;
+  padding-left: 10px;
+  text-decoration: none;
+}
+
+.asb-icon {
+  min-width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+}
+
+.asb-text {
+  position: relative;
+  white-space: nowrap;
+  font-family: "Poppins", sans-serif;
+  font-weight: 500;
+  font-size: 12px;
+  margin-left: 15px;
+  opacity: 0;
+  text-decoration: none;
+  visibility: hidden;
+  transition: 0s; /* Instantané pour éviter le glitch pendant l'anim width */
+}
+
+.asb-sidebar.active .asb-text {
+  opacity: 1;
+  text-decoration: none;
+  visibility: visible;
+  transition: opacity 0.4s ease 0.2s; /* Délai à l'ouverture */
+}
+
+/* État Actif (Texte et Icône) */
+.asb-item.active .asb-link {
+  text-decoration: none;
+  color: var(--asb-primary); /* Devient violet sur fond blanc */
+}
+
+/* L'Indicateur Liquide (Magie CSS) */
+.asb-indicator {
+  position: absolute;
+  left: 10px; /* Alignement avec le padding de menu-list */
+  width: calc(100% - 10px);
+  height: var(--asb-item-height);
+  background: var(--asb-secondary); /* Couleur du fond de la page */
+  border-top-left-radius: 30px;
+  border-bottom-left-radius: 30px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Les coins inversés pour l'effet liquide */
+.asb-indicator::before,
+.asb-indicator::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  width: var(--asb-indicator-curve-size);
+  height: var(--asb-indicator-curve-size);
+  background: transparent;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.asb-indicator::before {
+  top: calc(var(--asb-indicator-curve-size) * -1);
+  box-shadow: 15px 15px 0 var(--asb-secondary); /* Ombre portée qui crée la forme */
+}
+
+.asb-indicator::after {
+  bottom: calc(var(--asb-indicator-curve-size) * -1);
+  box-shadow: 15px -15px 0 var(--asb-secondary);
+}
+
+/* Logo Section */
+.asb-logo {
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+  margin-bottom: 5px;
+  height: 20px;
+  overflow: hidden;
+}
+.asb-logo-icon {
+  font-size: 32px;
+  color: #fff;
+  min-width: 40px;
+  display: flex;
+  justify-content: center;
+}
+.asb-logo-text {
+  font-family: "Poppins", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: #fff;
+  margin-left: 15px;
+  white-space: nowrap;
+  opacity: 0;
+}
+.asb-sidebar.active .asb-logo-text {
+  opacity: 1;
+  transition: opacity 0.3s;
+}
+
+/* Footer (Logout) */
+.asb-footer {
+  margin-top: auto;
+  padding-left: 10px;
+}
+
+/* Responsive Mobile */
+@media (max-width: 768px) {
+  .asb-sidebar {
+    position: fixed;
+    left: -100%; /* Caché par défaut */
+    width: var(--asb-width-expanded); /* Toujours étendu sur mobile quand ouvert */
+    transition: left 0.3s ease;
+  }
+  
+  .asb-sidebar.mobile-open {
+    left: 16px;
+  }
+
+  .asb-sidebar.mobile-open .asb-toggle {
+    display: none; /* Pas de toggle collapse sur mobile */
+  }
+}
+
+/* Overlay pour mobile */
+.asb-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 90;
+  backdrop-filter: blur(2px);
+}
+
+
+/* ✅ Date/heure à droite, avant username/rôle */
+.topbarClock{
+  text-align: right;
+  line-height: 1.05;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.topbarClockDate{
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: capitalize; /* garde "Samedi" si besoin selon navigateur */
+}
+.topbarClockTime{
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+
+/* ✅ Bloc user (remplace tes styles inline par du clean) */
+.topbarUser{
+  text-align: right;
+  line-height: 1.1;
+  margin-right: 6px;
+}
+.topbarUserName{
+  font-weight: 800;
+  font-size: 14px;
+}
+.topbarUserRole{
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Optionnel: sur très petit écran on évite que ça casse */
+@media (max-width: 520px){
+  .topbarClockDate{ display: none; }
+}

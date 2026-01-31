@@ -1,4 +1,3 @@
-// client/src/pages/Login.jsx
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api.js';
@@ -14,6 +13,7 @@ const ROLES = [
 export default function Login() {
   const navigate = useNavigate();
   const { setSession } = useAuth();
+
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('DEMANDEUR');
   const [password, setPassword] = useState('');
@@ -24,6 +24,7 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
     try {
       const data = await apiFetch('/api/auth/login', {
         method: 'POST',
@@ -32,7 +33,6 @@ export default function Login() {
       setSession(data.token, data.user);
       navigate('/app');
     } catch (err) {
-      // (Gestion d'erreur identique à l'original)
       setError(err.message || 'Erreur de connexion');
     } finally {
       setLoading(false);
@@ -87,7 +87,7 @@ export default function Login() {
 
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <Link to="/forgot" style={{ color: '#4f46e5' }}>Mot de passe oublié ?</Link>
-          <div style={{ color: '#94a3b8' }}>Pas encore de compte ? <Link to="/register" style={{ color: '#4f46e5', fontWeight: '600' }}>Créer un compte</Link></div>
+          {/* Lien d'inscription supprimé pour sécurité */}
         </div>
       </div>
     </div>

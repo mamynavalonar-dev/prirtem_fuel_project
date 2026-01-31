@@ -26,7 +26,7 @@ export default function PrintLogbook() {
   return (
     <div style={{ background: '#eee', minHeight: '100vh', padding: 20 }}>
       <div className="noPrint" style={{ marginBottom: 20, textAlign: 'center' }}>
-        <Link className="btn btn-secondary" to={`/app/logbooks/${id}`}>← Retour</Link>
+        <Link className="btn btn-outline" to="/app/logbooks">← Retour</Link>
         <button className="btn" onClick={() => window.print()} style={{ marginLeft: 10 }}>Imprimer</button>
       </div>
 

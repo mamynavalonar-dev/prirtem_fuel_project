@@ -2,10 +2,13 @@ const { z } = require('zod');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db');
 
+// SEUIL pour considérer un ajout comme un "PLEIN" (en Ariary)
+// Idéalement, à mettre dans une table 'settings' en base de données.
+const REFILL_THRESHOLD = 200000;
+
 function buildWhereVehicle({ vehicle_id, from, to, only_refill }) {
   const clauses = [];
   const params = [];
-  
   // Toujours exclure les éléments supprimés
   clauses.push('vfl.deleted_at IS NULL');
   
@@ -30,7 +33,6 @@ function buildWhereVehicle({ vehicle_id, from, to, only_refill }) {
 function buildWhereDate({ from, to }) {
   const clauses = [];
   const params = [];
-  
   // Toujours exclure les éléments supprimés
   clauses.push('deleted_at IS NULL');
   
@@ -107,7 +109,7 @@ async function updateVehicleFuel(req, res) {
   }
 
   const data = parsed.data;
-
+  
   // ========== LOGIQUE MÉTIER : Calcul automatique ==========
   // Si km_depart ou km_arrivee change, recalculer km_jour
   if (data.km_depart !== undefined || data.km_arrivee !== undefined) {
@@ -121,15 +123,14 @@ async function updateVehicleFuel(req, res) {
     }
   }
 
-  // Si montant_ar change, recalculer is_refill (>= 200000 Ar)
+  // Si montant_ar change, recalculer is_refill
   if (data.montant_ar !== undefined) {
-    data.is_refill = data.montant_ar !== null && data.montant_ar >= 200000;
+    data.is_refill = data.montant_ar !== null && data.montant_ar >= REFILL_THRESHOLD;
   }
 
   const fields = [];
   const values = [];
   let idx = 1;
-
   for (const [key, val] of Object.entries(data)) {
     fields.push(`${key}=$${idx++}`);
     values.push(val);
@@ -141,7 +142,6 @@ async function updateVehicleFuel(req, res) {
 
   values.push(id);
   const sql = `UPDATE vehicle_fuel_logs SET ${fields.join(', ')} WHERE id=$${idx} AND deleted_at IS NULL RETURNING *`;
-  
   const { rows } = await pool.query(sql, values);
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -162,7 +162,6 @@ async function softDeleteVehicleFuel(req, res) {
     'UPDATE vehicle_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
     [id]
   );
-  
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
   }
@@ -192,7 +191,6 @@ async function updateGeneratorFuel(req, res) {
   const fields = [];
   const values = [];
   let idx = 1;
-
   for (const [key, val] of Object.entries(data)) {
     fields.push(`${key}=$${idx++}`);
     values.push(val);
@@ -204,7 +202,6 @@ async function updateGeneratorFuel(req, res) {
 
   values.push(id);
   const sql = `UPDATE generator_fuel_logs SET ${fields.join(', ')} WHERE id=$${idx} AND deleted_at IS NULL RETURNING *`;
-  
   const { rows } = await pool.query(sql, values);
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -225,7 +222,6 @@ async function softDeleteGeneratorFuel(req, res) {
     'UPDATE generator_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
     [id]
   );
-  
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
   }
@@ -256,7 +252,6 @@ async function updateOtherFuel(req, res) {
   const fields = [];
   const values = [];
   let idx = 1;
-
   for (const [key, val] of Object.entries(data)) {
     fields.push(`${key}=$${idx++}`);
     values.push(val);
@@ -268,7 +263,6 @@ async function updateOtherFuel(req, res) {
 
   values.push(id);
   const sql = `UPDATE other_fuel_logs SET ${fields.join(', ')} WHERE id=$${idx} AND deleted_at IS NULL RETURNING *`;
-  
   const { rows } = await pool.query(sql, values);
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -289,7 +283,6 @@ async function softDeleteOtherFuel(req, res) {
     'UPDATE other_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
     [id]
   );
-  
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
   }
@@ -300,7 +293,6 @@ async function softDeleteOtherFuel(req, res) {
 // ========== REPORTS & KPIs ==========
 async function reportSummary(req, res) {
   const { from, to, vehicle_id } = req.query;
-
   const v = buildWhereVehicle({ vehicle_id, from, to, only_refill: 'false' });
   const d = buildWhereDate({ from, to });
 
@@ -312,7 +304,6 @@ async function reportSummary(req, res) {
      ${v.where}`,
     v.params
   );
-
   const genRes = await pool.query(
     `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
             COALESCE(SUM(liters),0) AS liters,
@@ -321,7 +312,6 @@ async function reportSummary(req, res) {
      ${d.where}`,
     d.params
   );
-
   const otherRes = await pool.query(
     `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
             COALESCE(SUM(liters),0) AS liters,
@@ -394,7 +384,7 @@ async function manualAddVehicle(req, res) {
   if (!parsed.success) return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
 
   const d = parsed.data;
-  const is_refill = d.montant_ar !== null && d.montant_ar !== undefined && d.montant_ar >= 200000;
+  const is_refill = d.montant_ar !== null && d.montant_ar !== undefined && d.montant_ar >= REFILL_THRESHOLD;
 
   const id = uuidv4();
   await pool.query(
@@ -423,7 +413,6 @@ async function manualAddVehicle(req, res) {
       is_refill
     ]
   );
-
   const { rows } = await pool.query(
     `SELECT vfl.*, v.plate
      FROM vehicle_fuel_logs vfl JOIN vehicles v ON v.id=vfl.vehicle_id
