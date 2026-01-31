@@ -1,0 +1,117 @@
+.gscWrap{
+  position: relative;
+  border-radius: 18px;
+}
+
+.gscGlow{
+  position:absolute;
+  inset:-6px;
+  border-radius: 18px;
+  filter: blur(14px);
+  opacity:.22;
+  transition: opacity .35s ease;
+}
+
+.gscWrap:hover .gscGlow{
+  opacity:.42;
+}
+
+.gscCard{
+  position:relative;
+  border-radius: 18px;
+  padding: 18px;
+  background: #0f172a; /* slate-900 */
+  box-shadow: 0 14px 40px rgba(2,6,23,.25);
+  border: 1px solid rgba(255,255,255,.06);
+  color: #e5e7eb;
+}
+
+.gscHeader{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.gscTitleBlock{ min-width: 0; }
+
+.gscTitle{
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.1;
+  background-clip:text;
+  -webkit-background-clip:text;
+  color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gscSubtitle{
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(226,232,240,.75);
+}
+
+.gscBadge{
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.06);
+  user-select:none;
+  flex-shrink:0;
+}
+
+.gscDot{
+  width:8px;height:8px;border-radius:999px;
+  animation: gscPulse 1.3s infinite;
+}
+
+@keyframes gscPulse{
+  0%{ transform: scale(1); opacity: 1; }
+  50%{ transform: scale(1.35); opacity: .65; }
+  100%{ transform: scale(1); opacity: 1; }
+}
+
+.gscBadgeText{
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gscGrid{
+  display:grid;
+  gap: 12px;
+}
+
+.gscStat{
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+  border: 1px solid rgba(255,255,255,.06);
+}
+
+.gscStatValue{
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--statValue, #34d399);
+  letter-spacing: .2px;
+}
+
+.gscStatLabel{
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(226,232,240,.78);
+}
+
+.gscStatBar{
+  position:absolute;
+  left:0; right:0; bottom:0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--statFrom, #10b981), var(--statTo, #0ea5e9));
+  opacity:.95;
+}
