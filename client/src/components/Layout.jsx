@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import NotificationBell from './NotificationBell.jsx';
@@ -30,8 +30,8 @@ const MENU = {
   ],
   admin: [
     { to: '/app', label: 'Dashboard' },
-    { to: '/app/users', label: 'Utilisateurs' }, // Gestion des users
-    { to: '/app/fuel', label: 'Suivi carburant' }, // <--- CORRECTION ICI (AJOUTÉ)
+    { to: '/app/users', label: 'Utilisateurs' },
+    { to: '/app/fuel', label: 'Suivi carburant' },
     { to: '/app/import', label: 'Import Excel' },
     { to: '/app/meta', label: 'Flotte & Chauffeurs' },
     { to: '/app/requests/fuel/manage', label: 'Valid. carburant' },
@@ -46,25 +46,37 @@ function getMenu(role) {
   if (role === 'DEMANDEUR') return [...base, ...MENU.demandeur];
   if (role === 'LOGISTIQUE') return [...base, ...MENU.logistique];
   if (role === 'RAF') return [...base, ...MENU.raf];
-  if (role === 'ADMIN') return MENU.admin; 
+  if (role === 'ADMIN') return MENU.admin;
   return base;
 }
+
+// ✅ Très important: évite que tout le contenu (Dashboard charts etc.) re-render
+// à chaque open/close du sidebar ou à chaque tick de l’horloge.
+const MemoChildren = React.memo(function MemoChildren({ children }) {
+  return children;
+});
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  // État de la sidebar
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [isExpanded, setIsExpanded] = useState(false);
+  // Responsive
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Menu selon rôle
   const menu = useMemo(() => getMenu(user?.role), [user?.role]);
 
-  // ✅ Date/heure live
-  const [now, setNow] = useState(() => new Date());
+  // Titre dynamique
+  const currentTitle = useMemo(() => {
+    const path = location.pathname;
+    const found = menu.find((m) => m.to === path || path.startsWith(m.to + '/'));
+    return found?.label || 'PRIRTEM';
+  }, [menu, location.pathname]);
 
+  // ✅ Date/heure live (ne re-render plus les pages grâce à MemoChildren)
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
@@ -75,24 +87,18 @@ export default function Layout({ children }) {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
-      year: 'numeric',
+      year: 'numeric'
     }).format(now);
   }, [now]);
 
   const timeLabel = useMemo(() => {
     return new Intl.DateTimeFormat('fr-FR', {
       hour: '2-digit',
-      minute: '2-digit',
+      minute: '2-digit'
     }).format(now);
   }, [now]);
 
-  // Titre dynamique
-  const currentTitle = useMemo(() => {
-    const path = location.pathname;
-    const found = menu.find(m => m.to === path || path.startsWith(m.to + '/'));
-    return found?.label || 'PRIRTEM';
-  }, [menu, location]);
-
+  // Resize listener
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
@@ -103,63 +109,111 @@ export default function Layout({ children }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleLogout = () => {
+  // Empêcher le scroll horizontal quand la sidebar bouge
+  useEffect(() => {
+    const prev = document.body.style.overflowX;
+    document.body.style.overflowX = 'hidden';
+    return () => {
+      document.body.style.overflowX = prev;
+    };
+  }, []);
+
+  const handleLogout = useCallback(() => {
     logout();
     navigate('/login');
-  };
+  }, [logout, navigate]);
 
-  const mainStyle = {
-    marginLeft: isMobile ? '0' : (isExpanded ? '290px' : '110px'),
-    transition: 'margin-left 0.5s cubic-bezier(0.25, 0.1, 0.25, 1)',
-    padding: '16px',
-    minHeight: '100vh'
-  };
+  const openMobile = useCallback(() => setMobileOpen(true), []);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+  // ✅ IMPORTANT :
+  // - Sur desktop, on utilise une CSS var --app-main-offset (pilotée par AnimatedSidebar)
+  // - Et surtout: PAS de transition margin-left => pas de recalcul “à chaque frame”
+  const mainStyle = useMemo(
+    () => ({
+      marginLeft: isMobile ? 0 : 'var(--app-main-offset, 110px)',
+      padding: 16,
+      height: '100vh',
+      boxSizing: 'border-box',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 16,
+      overflow: 'hidden', // le scroll est dans le conteneur, pas sur toute la page
+      background: 'var(--bg)'
+    }),
+    [isMobile]
+  );
+
+  const topbarStyle = useMemo(
+    () => ({
+      marginBottom: 0,
+      borderRadius: 14,
+      border: 'none',
+      flex: '0 0 auto'
+    }),
+    []
+  );
+
+  // ✅ LE CONTENEUR (comme ton image): toutes les pages dedans
+  const contentContainerStyle = useMemo(
+    () => ({
+      flex: '1 1 auto',
+      minHeight: 0,
+      overflow: 'auto',
+      borderRadius: 14,
+      border: 'none',
+      padding: 16
+    }),
+    []
+  );
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <AnimatedSidebar
         menu={menu}
-        isExpanded={isExpanded}
-        toggleSidebar={() => setIsExpanded(!isExpanded)}
         isMobile={isMobile}
         isMobileOpen={mobileOpen}
-        closeMobile={() => setMobileOpen(false)}
+        closeMobile={closeMobile}
         onLogout={handleLogout}
       />
 
       <main style={mainStyle}>
-        <div className="topbar card" style={{ marginBottom: '20px', borderRadius: '14px', border: 'none' }}>
+        {/* Topbar */}
+        <div className="topbar card" style={topbarStyle}>
           <div className="topbarLeft">
             {isMobile && (
-              <button className="iconBtn" onClick={() => setMobileOpen(true)}>
-                <ion-icon name="menu-outline" style={{ fontSize: '24px' }}></ion-icon>
+              <button className="iconBtn" onClick={openMobile} aria-label="Ouvrir le menu">
+                <ion-icon name="menu-outline" style={{ fontSize: 24 }}></ion-icon>
               </button>
             )}
-            <div className="topbarTitle" style={{ fontSize: '18px' }}>{currentTitle}</div>
+            <div className="topbarTitle" style={{ fontSize: 18 }}>
+              {currentTitle}
+            </div>
           </div>
 
           <div className="topbarRight">
-            <div style={{ textAlign: 'right', marginRight: '12px', lineHeight: '1.15' }}>
-              <div style={{ fontSize: '12px', color: 'var(--muted)', textTransform: 'capitalize' }}>
-                {dateLabel}
-              </div>
-              <div style={{ fontSize: '13px', fontWeight: 900 }}>
-                {timeLabel}
-              </div>
+            <div className="topbarClock">
+              <div className="topbarClockDate">{dateLabel}</div>
+              <div className="topbarClockTime">{timeLabel}</div>
             </div>
 
-            <div style={{ textAlign: 'right', marginRight: '10px', lineHeight: '1.2' }}>
-              <div style={{ fontWeight: '700', fontSize: '14px' }}>{user?.username}</div>
-              <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{user?.role}</div>
+            <div className="topbarUser">
+              <div className="topbarUserName">{user?.username || 'Utilisateur'}</div>
+              <div className="topbarUserRole">{user?.role || ''}</div>
             </div>
 
             <NotificationBell />
+
+            <button className="iconBtn" onClick={handleLogout} aria-label="Déconnexion">
+              <ion-icon name="log-out-outline" style={{ fontSize: 22 }}></ion-icon>
+            </button>
           </div>
         </div>
 
-        <div className="page-content">
-          {children}
-        </div>
+        {/* ✅ CONTENEUR GLOBAL : tous les contenus ici */}
+        <section className="card" style={contentContainerStyle}>
+          <MemoChildren>{children}</MemoChildren>
+        </section>
       </main>
     </div>
   );
