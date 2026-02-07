@@ -1,5 +1,5 @@
 // client/src/pages/Dashboard.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
 
@@ -279,42 +279,7 @@ function PremiumKpiCard({
             />
           </div>
         </div>
-
-        <div className="rowBetween" style={{ marginTop: 14, alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div
-              title="Montant"
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 900,
-                color: '#eafff7',
-                background: `linear-gradient(135deg, ${acc.a1}, ${acc.a2})`,
-              }}
-            >
-              Ar
-            </div>
-            <div
-              title="Litres"
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 900,
-                color: '#eaf2ff',
-                background: 'linear-gradient(135deg, #22d3ee, #60a5fa)',
-              }}
-            >
-              L
-            </div>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
 
           <button
             onClick={onOpen}
@@ -350,7 +315,7 @@ function ChartCard({ title, children, right }) {
   );
 }
 
-export default function Dashboard() {
+function Dashboard() {
   const { token } = useAuth();
 
   const [from, setFrom] = useState('');
@@ -363,6 +328,7 @@ export default function Dashboard() {
   const [seriesByVehicleId, setSeriesByVehicleId] = useState({}); // { [id]: points[] }
 
   const [loading, setLoading] = useState(false);
+  const [loadingSeries, setLoadingSeries] = useState(false);
   const [error, setError] = useState(null);
 
   // ✅ Charge la liste des véhicules
@@ -378,7 +344,39 @@ export default function Dashboard() {
     return list.slice(0, 6);
   }, [vehicles]);
 
-  async function loadAll() {
+    const loadSeries6 = useCallback(async (qs) => {
+    // ✅ Séries individuelles pour 6 véhicules (1 seule requête backend)
+    if (!vehicleList6.length) {
+      setSeriesByVehicleId({});
+      return;
+    }
+
+    setLoadingSeries(true);
+    try {
+      const ids = vehicleList6.map((v) => v.id).join(',');
+      const bulk = await apiFetch(`/api/fuel/kpi/daily/bulk?${qs}&vehicle_ids=${encodeURIComponent(ids)}`, { token });
+      const series = bulk?.series || {};
+
+      const obj = {};
+      for (const v of vehicleList6) {
+        const pts = (series[v.id] || []).map((p) => ({
+          log_date: toYMD(p.log_date),
+          liters: n0(p.liters),
+          montant_ar: n0(p.montant_ar),
+          refills: n0(p.refills),
+        }));
+        obj[v.id] = pts;
+      }
+
+      setSeriesByVehicleId(obj);
+    } catch (_) {
+      setSeriesByVehicleId({});
+    } finally {
+      setLoadingSeries(false);
+    }
+  }, [token, vehicleList6]);
+
+async function loadAll() {
     setLoading(true);
     setError(null);
     try {
@@ -408,29 +406,7 @@ export default function Dashboard() {
       }));
       setByVehicle(rows);
 
-      // ✅ 6 véhicules : séries individuelles
-      if (vehicleList6.length) {
-        const series = await Promise.all(
-          vehicleList6.map(async (v) => {
-            const qsv = new URLSearchParams(qs);
-            qsv.set('vehicle_id', v.id);
-            const d = await apiFetch(`/api/fuel/kpi/daily?${qsv.toString()}`, { token });
-            const pts = (d.points || []).map((p) => ({
-              log_date: toYMD(p.log_date),
-              liters: n0(p.liters),
-              montant_ar: n0(p.montant_ar),
-              refills: n0(p.refills),
-            }));
-            return [v.id, pts];
-          })
-        );
-
-        const obj = {};
-        for (const [id, pts] of series) obj[id] = pts;
-        setSeriesByVehicleId(obj);
-      } else {
-        setSeriesByVehicleId({});
-      }
+      await loadSeries6(qs);
     } catch (e) {
       setError(e?.message || 'Erreur de chargement');
     } finally {
@@ -445,8 +421,11 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    // quand les véhicules sont chargés (et donc vehicleList6), on recharge pour avoir les 6 charts
-    if (vehicles.length) loadAll();
+    // ✅ Quand les véhicules sont chargés, on charge UNIQUEMENT les 6 séries (pas tout le dashboard)
+    if (vehicles.length) {
+      const qs = buildQs(from, to);
+      loadSeries6(qs);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicles.length]);
 
@@ -504,6 +483,7 @@ export default function Dashboard() {
   const baseLineOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    animation: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { position: 'top' },
@@ -591,6 +571,7 @@ export default function Dashboard() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+    animation: false,
       plugins: { legend: { position: 'bottom' } },
       cutout: '68%',
     },
@@ -613,6 +594,7 @@ export default function Dashboard() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+    animation: false,
       plugins: { legend: { position: 'bottom' } },
       cutout: '68%',
     },
@@ -667,6 +649,7 @@ export default function Dashboard() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+    animation: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { position: 'top' },
@@ -746,8 +729,8 @@ export default function Dashboard() {
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="row" style={{ alignItems: 'end' }}>
-            <button className="btn" onClick={loadAll} disabled={loading}>
-              {loading ? 'Chargement...' : 'Actualiser'}
+            <button className="btn" onClick={loadAll} disabled={loading || loadingSeries}>
+              {(loading || loadingSeries) ? 'Chargement...' : 'Actualiser'}
             </button>
           </div>
         </div>
@@ -870,55 +853,24 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Multi-axes 6 véhicules */}
-      <div style={{ marginTop: 14 }}>
-        <ChartCard
-          title="Comparaison — 6 véhicules (multi-axes, montant)"
-          right={
-            <span className="badge">
-              {vehicleList6.length}/6
-            </span>
-          }
-        >
-          <Line data={multiVehicleChart.data} options={multiVehicleChart.options} />
-        </ChartCard>
-      </div>
+     
 
-      {/* 6 charts individuels en 3 colonnes */}
-      <div
-        className="dashGrid3"
-        style={{
-          marginTop: 14,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 14,
-        }}
-      >
-        {perVehicleCharts.map((c) => (
-          <div key={c.key} className="card" style={{ padding: 16 }}>
-            <div className="rowBetween" style={{ marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>{c.plate || 'Véhicule'}</h3>
-              <span className="badge badge-ok">Line</span>
-            </div>
-            <div style={{ height: 260 }}>
-              <Line data={c.data} options={c.options} />
-            </div>
-          </div>
-        ))}
-      </div>
+    
 
       {/* Responsive quick fix sans toucher styles.css */}
       <style>{`
-        @media (max-width: 1200px){
-          .dashGrid3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-        }
+        
         @media (max-width: 900px){
-          .kpiRow3 { grid-template-columns: 1fr !important; }
+          .kpiRow3 { grid-template-columns: 200px !important; }
         }
         @media (max-width: 720px){
-          .dashGrid3 { grid-template-columns: 1fr !important; }
+          .dashGrid3 { grid-template-columns: 200px !important; }
         }
       `}</style>
     </>
   );
 }
+
+
+
+export default memo(Dashboard);

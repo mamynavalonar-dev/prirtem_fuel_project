@@ -31,6 +31,7 @@ router.get('/export/:type', asyncHandler(ctrl.exportCsv));
 
 // Reports & KPIs
 router.get('/report/summary', asyncHandler(ctrl.reportSummary));
+router.get('/kpi/daily/bulk', asyncHandler(ctrl.kpiDailyBulk));
 router.get('/kpi/daily', asyncHandler(ctrl.kpiDaily));
 router.get('/kpi/by-vehicle', asyncHandler(ctrl.kpiByVehicle));
 

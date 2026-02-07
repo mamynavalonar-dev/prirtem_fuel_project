@@ -345,6 +345,68 @@ async function kpiDaily(req, res) {
   res.json({ points: rows });
 }
 
+
+async function kpiDailyBulk(req, res) {
+  const { from, to, vehicle_ids } = req.query;
+
+  // vehicle_ids attendu: "uuid1,uuid2,uuid3"
+  const raw = String(vehicle_ids || '');
+  const ids = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const parsed = z.array(z.string().uuid()).max(50).safeParse(ids);
+  if (!parsed.success || parsed.data.length === 0) {
+    return res.status(400).json({ error: 'vehicle_ids invalide' });
+  }
+
+  const clauses = ['vfl.deleted_at IS NULL'];
+  const params = [];
+
+  if (from) {
+    params.push(from);
+    clauses.push(`vfl.log_date >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    clauses.push(`vfl.log_date <= $${params.length}`);
+  }
+
+  params.push(parsed.data);
+  clauses.push(`vfl.vehicle_id = ANY($${params.length}::uuid[])`);
+
+  const where = 'WHERE ' + clauses.join(' AND ');
+
+  const { rows } = await pool.query(
+    `SELECT vfl.vehicle_id,
+            vfl.log_date,
+            COALESCE(SUM(vfl.liters),0) AS liters,
+            COALESCE(SUM(vfl.montant_ar),0) AS montant_ar,
+            COUNT(*) FILTER (WHERE vfl.is_refill) AS refills
+     FROM vehicle_fuel_logs vfl
+     ${where}
+     GROUP BY vfl.vehicle_id, vfl.log_date
+     ORDER BY vfl.vehicle_id ASC, vfl.log_date ASC NULLS LAST`,
+    params
+  );
+
+  // { [vehicle_id]: points[] } (toujours inclure les ids demandés)
+  const series = {};
+  for (const id of parsed.data) series[id] = [];
+  for (const r of rows) {
+    if (!series[r.vehicle_id]) series[r.vehicle_id] = [];
+    series[r.vehicle_id].push({
+      log_date: r.log_date,
+      liters: r.liters,
+      montant_ar: r.montant_ar,
+      refills: r.refills,
+    });
+  }
+
+  res.json({ series });
+}
+
 async function kpiByVehicle(req, res) {
   const { from, to } = req.query;
   const v = buildWhereVehicle({ vehicle_id: null, from, to, only_refill: 'false' });
@@ -529,6 +591,7 @@ module.exports = {
   listOtherFuel,
   reportSummary,
   kpiDaily,
+  kpiDailyBulk,
   kpiByVehicle,
   manualAddVehicle,
   manualAddGenerator,
