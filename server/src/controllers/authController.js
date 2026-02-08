@@ -59,10 +59,18 @@ async function register(req, res) {
   return res.json({ token, user });
 }
 
+/**
+ * ✅ Login sans sélection du rôle côté client :
+ * - On identifie l'utilisateur par username
+ * - On vérifie le mot de passe
+ * - On récupère le rôle depuis la DB
+ *
+ * NB: "role" est optionnel uniquement pour compatibilité (anciens clients), mais on l'ignore.
+ */
 const loginSchema = z.object({
   username: z.string().min(1),
-  role: z.enum(ROLES),
-  password: z.string().min(1)
+  password: z.string().min(1),
+  role: z.enum(ROLES).optional()
 });
 
 async function login(req, res) {
@@ -73,19 +81,18 @@ async function login(req, res) {
 
   // Trim to avoid common UX issues (copy/paste spaces)
   const username = String(parsed.data.username || '').trim();
-  const role = parsed.data.role;
   const password = String(parsed.data.password || '');
+
   const { rows } = await pool.query(
     'SELECT id, first_name, last_name, username, email, role, password_hash, is_active FROM users WHERE username=$1',
     [username]
   );
+
   const user = rows[0];
   if (!user || !user.is_active) {
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
-  if (user.role !== role) {
-    return res.status(401).json({ error: 'ROLE_MISMATCH', expectedRole: user.role });
-  }
+
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) {
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
@@ -100,6 +107,7 @@ async function login(req, res) {
     email: user.email,
     role: user.role
   };
+
   return res.json({ token, user: safeUser });
 }
 
@@ -124,19 +132,19 @@ async function forgotPassword(req, res) {
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 min
 
   await pool.query(
-    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+    `INSERT INTO password_resets (id, user_id, token_hash, expires_at)
      VALUES ($1,$2,$3,$4)`,
     [uuidv4(), user.id, tokenHash, expiresAt]
   );
 
-  await sendResetEmail(email, tokenPlain);
+  await sendResetEmail(user.email, tokenPlain);
+
   return res.json({ ok: true });
 }
 
 const resetSchema = z.object({
-  email: z.string().email(),
   token: z.string().min(10),
-  new_password: z.string().min(6)
+  password: z.string().min(6)
 });
 
 async function resetPassword(req, res) {
@@ -145,36 +153,37 @@ async function resetPassword(req, res) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
   }
 
-  const { email, token, new_password } = parsed.data;
-  const userRes = await pool.query('SELECT id FROM users WHERE email=$1 AND is_active=true', [email]);
-  const user = userRes.rows[0];
-  if (!user) {
-    return res.status(400).json({ error: 'INVALID_TOKEN' });
-  }
-
-  const resetRes = await pool.query(
-    `SELECT id, token_hash, expires_at, used_at
-     FROM password_reset_tokens
-     WHERE user_id=$1
-     ORDER BY created_at DESC
-     LIMIT 10`,
-    [user.id]
+  const { token, password } = parsed.data;
+  const { rows } = await pool.query(
+    `SELECT pr.id, pr.user_id, pr.token_hash, pr.expires_at, u.email
+     FROM password_resets pr
+     JOIN users u ON u.id = pr.user_id
+     WHERE pr.used_at IS NULL
+     ORDER BY pr.created_at DESC
+     LIMIT 20`
   );
 
-  const now = new Date();
-  const resetRow = resetRes.rows.find(r => !r.used_at && new Date(r.expires_at) > now);
-  if (!resetRow) {
-    return res.status(400).json({ error: 'INVALID_TOKEN' });
+  // match token against recent hashes (avoid storing plain token)
+  let found = null;
+  for (const r of rows) {
+    const ok = await bcrypt.compare(token, r.token_hash);
+    if (ok) {
+      found = r;
+      break;
+    }
   }
 
-  const ok = await bcrypt.compare(token, resetRow.token_hash);
-  if (!ok) {
+  if (!found) {
     return res.status(400).json({ error: 'INVALID_TOKEN' });
   }
+  if (new Date(found.expires_at).getTime() < Date.now()) {
+    return res.status(400).json({ error: 'TOKEN_EXPIRED' });
+  }
 
-  const password_hash = await bcrypt.hash(new_password, 10);
-  await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [password_hash, user.id]);
-  await pool.query('UPDATE password_reset_tokens SET used_at=now() WHERE id=$1', [resetRow.id]);
+  const password_hash = await bcrypt.hash(password, 10);
+
+  await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [password_hash, found.user_id]);
+  await pool.query('UPDATE password_resets SET used_at=NOW() WHERE id=$1', [found.id]);
 
   return res.json({ ok: true });
 }
