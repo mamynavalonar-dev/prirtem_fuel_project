@@ -4,19 +4,11 @@ import { apiFetch } from '../utils/api.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import FloatingLines from '../components/FloatingLines.jsx';
 
-const ROLES = [
-  { value: 'DEMANDEUR', label: 'Demandeur' },
-  { value: 'LOGISTIQUE', label: 'Logistique' },
-  { value: 'RAF', label: 'RAF' },
-  { value: 'ADMIN', label: 'Admin' }
-];
-
 export default function Login() {
   const navigate = useNavigate();
   const { setSession } = useAuth();
 
   const [username, setUsername] = useState('');
-  const [role, setRole] = useState('DEMANDEUR');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -38,7 +30,7 @@ export default function Login() {
     try {
       const data = await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: { username, role, password }
+        body: { username, password }
       });
       setSession(data.token, data.user);
       navigate('/app');
@@ -157,17 +149,6 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="label">Rôle</label>
-            <select className="input" style={{ padding: '12px' }} value={role} onChange={(e) => setRole(e.target.value)}>
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
             <label className="label">Mot de passe</label>
             <input
               className="input"
@@ -185,8 +166,19 @@ export default function Login() {
           </button>
         </form>
 
-        <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <Link to="/forgot" style={{ color: '#4f46e5' }}>Mot de passe oublié ?</Link>
+        <div
+          style={{
+            marginTop: '24px',
+            textAlign: 'center',
+            fontSize: '14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px'
+          }}
+        >
+          <Link to="/forgot" style={{ color: '#4f46e5' }}>
+            Mot de passe oublié ?
+          </Link>
           {/* Lien d'inscription supprimé pour sécurité */}
         </div>
       </div>

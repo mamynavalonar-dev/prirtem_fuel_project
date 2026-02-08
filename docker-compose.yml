@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: prirtem_fuel
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: 123456
     ports:
       - "5432:5432"
     volumes:
@@ -23,8 +23,8 @@ services:
     environment:
       PORT: 3001
       NODE_ENV: development
-      DATABASE_URL: postgres://postgres:postgres@db:5432/prirtem_fuel
-      JWT_SECRET: change_me_super_secret
+      DATABASE_URL: postgres://postgres:123456@db:5432/prirtem_fuel
+      JWT_SECRET: NavalonaDevfullstack2026
       APP_URL: http://localhost:5173
       CHOKIDAR_USEPOLLING: "true"
     ports:
