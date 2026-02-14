@@ -1,15 +1,23 @@
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap");
 
 :root {
-  --asb-primary: #763fee;
-  --asb-secondary: #f7f7fb;
-  --asb-text: #ffffff;
+  /* ✅ Light */
+  --asb-primary: #763fee;              /* fond sidebar (light) */
+  --asb-secondary: var(--bg);          /* ✅ suit le thème global (light/dark) */
+  --asb-text: #ffffff;                 /* texte/icônes dans le sidebar */
+  --asb-active: var(--asb-primary);    /* couleur active (sur l'indicateur) */
 
   --asb-width-collapsed: 80px;
   --asb-width-expanded: 260px;
 
   --asb-item-height: 56px;
   --asb-indicator-curve-size: 50px;
+}
+
+/* ✅ Dark: on change AUSSI le fond du sidebar */
+html[data-theme="dark"]{
+  --asb-primary: #2b1a66;   /* ✅ violet plus sombre en dark */
+  --asb-active: var(--accent); /* ✅ couleur active qui suit le thème (accent change déjà en dark) */
 }
 
 /* Container Principal */
@@ -33,7 +41,6 @@
   z-index: 1000;
   box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 
-  /* ✅ perf sans couper le toggle */
   transform: translateZ(0);
   will-change: width;
   transition: width 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -53,7 +60,7 @@
   height: 36px;
 
   background-color: var(--asb-primary);
-  border: 4px solid var(--asb-secondary);
+  border: 4px solid var(--asb-secondary); /* ✅ suit le thème */
   border-radius: 50%;
 
   display: flex;
@@ -89,7 +96,6 @@
   overflow-y: auto;
   overflow-x: hidden;
 
-  /* perf */
   contain: paint;
   overscroll-behavior: contain;
 
@@ -154,9 +160,9 @@
   transition: opacity 0.18s ease 0.08s;
 }
 
-/* Active */
+/* ✅ Active (texte + icône) */
 .asb-item.active .asb-link {
-  color: var(--asb-primary);
+  color: var(--asb-active);
 }
 
 /* Indicateur */
@@ -167,7 +173,7 @@
   width: 100%;
   height: var(--asb-item-height);
 
-  background: var(--asb-secondary);
+  background: var(--asb-secondary); /* ✅ suit le thème */
   border-top-left-radius: 30px;
   border-bottom-left-radius: 30px;
 
@@ -252,11 +258,9 @@
 .asb-footer .asb-link {
   width: 100%;
   display: flex;
-  /* CORRECTION ICI : On passe de center à flex-start pour l'aligner à gauche comme les autres */
-  justify-content: flex-start; 
+  justify-content: flex-start;
   align-items: center;
-  /* On s'assure que le padding gauche est bien appliqué comme sur les autres liens */
-  padding-left: 10px; 
+  padding-left: 10px;
 }
 
 /* ✅ Bouton logout : neutralise les styles globaux button{} */
@@ -267,16 +271,15 @@
   font: inherit;
   color: inherit;
 
-  /* On enlève le padding top/right/bottom du button
-     sans toucher le padding-left déjà géré par .asb-link */
   padding-top: 0;
   padding-right: 0;
   padding-bottom: 0;
 }
-/* optionnel : enlève le style bouton natif */
+
 .asb-logout:focus{
   outline: none;
 }
+
 /* Mobile off-canvas via transform */
 @media (max-width: 768px){
   .asb-sidebar{
