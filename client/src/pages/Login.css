@@ -1,0 +1,866 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+
+.loginExact,
+.loginExact * {
+  box-sizing: border-box;
+  font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.loginExact {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: #070b1a; /* fallback si WebGL off */
+  position: relative;
+  overflow: hidden;
+}
+
+
+/* ✅ Background FloatingLines derrière tout */
+.loginExact__bg{
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Force le canvas à remplir tout l’écran dans Login */
+.loginExact__bg .floating-lines-container{
+  position: absolute; /* (chez toi c’était relative) */
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Overlay pour calmer un peu le fond (optionnel mais pro) */
+.loginExact__bgOverlay{
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(900px 600px at 20% 20%, rgba(130, 53, 255, 0.28), transparent 58%),
+    radial-gradient(900px 600px at 85% 80%, rgba(0, 170, 255, 0.22), transparent 58%),
+    linear-gradient(180deg, rgba(10,14,40,0.35), rgba(10,14,40,0.55));
+}
+
+
+
+/* ✅ LA GRANDE FENÊTRE = FORME UNION */
+.loginExact__shape {
+  position: relative;
+
+  width: min(1200px, calc(92vh * 1672 / 1069), 100%);
+  aspect-ratio: 1672 / 1069;
+
+  padding: 22px;
+  background: rgba(45, 49, 83, 0.552);
+
+  backdrop-filter: blur(10px);
+
+  -webkit-mask-image: url("/ui/login/Union-mask.svg");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: 100% 100%;
+
+  mask-image: url("/ui/login/Union-mask.svg");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: 100% 100%;
+
+   z-index: 1;
+}
+
+.loginExact__shape::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/ui/login/Union-border.svg") center / 100% 100% no-repeat;
+  pointer-events: none;
+}
+
+@supports not (-webkit-mask-image: url("")) {
+  .loginExact__shape {
+    border-radius: 48px;
+  }
+}
+
+/* CONTENU INTERNE */
+.loginExact__card {
+  width: 100%;
+  height: 100%;
+
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 22px;
+}
+
+/* LEFT */
+.loginExact__left {
+  position: relative;
+  border-radius: 40px;
+  overflow: hidden;
+  min-height: 520px;
+}
+
+/* ✅ IMAGE DANS LA FORME SUBTRACT (MASK SVG) */
+.loginExact__leftMedia {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  contain: paint;
+  isolation: isolate;
+
+  -webkit-mask-image: url("/ui/login/Subtract-mask.svg");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: 100% 100%;
+
+  mask-image: url("/ui/login/Subtract-mask.svg");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: 100% 100%;
+
+  /* ✅ Fond transparent – la couleur verte de debug est supprimée */
+  background: transparent !important;
+
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+/* ✅ TRACK SLIDER */
+.loginExact__leftSlider {
+  position: absolute;
+  inset: 0;
+  display: flex;
+
+  /* ⚠️ IMPORTANT : PAS de width:300% car on a des clones (5 slides) */
+  width: 100%;
+
+  height: 100%;
+  will-change: transform;
+  transition-property: transform;
+  transition-timing-function: ease;
+  cursor: grab;
+  touch-action: pan-y;
+
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.loginExact__leftSlider.is-dragging {
+  cursor: grabbing;
+}
+
+/* ✅ 1 slide = 100% */
+.loginExact__leftSlide {
+  flex: 0 0 100%;
+  height: 100%;
+}
+
+.loginExact__leftSlide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;          /* ✅ plein cadre */
+  object-position: center;    /* ✅ centre */
+  user-select: none;
+  pointer-events: none;
+
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* ✅ DOTS bas-droite */
+.loginExact__leftDots {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  gap: 8px;
+  z-index: 4;
+}
+
+.loginExact__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  padding: 0;
+  transition: width 150ms ease, background 150ms ease, opacity 150ms ease;
+}
+
+.loginExact__dot.is-active {
+  width: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+/* ✅ ELLIPSE blanc (rond) */
+.loginExact__ellipse {
+  display: block;
+  position: absolute;
+  top: 29px;
+  left: 272px;
+  width: 90px;
+  height: 90px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* overlay Union par-dessus */
+.loginExact__leftOverlay {
+  position: absolute;
+  inset: 0;
+  width: 110%;
+  height: 110%;
+  left: -5%;
+  top: -5%;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* contenu au-dessus de tout */
+.loginExact__leftContent {
+  position: absolute;
+  inset: 0;
+  padding: 56px 50px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #fff;
+  z-index: 3;
+}
+
+.loginExact__kicker {
+  font-weight: 600;
+  font-size: 18px;
+  opacity: 0.95;
+}
+
+.loginExact__heroTitle {
+  margin: 10px 0 0;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-size: clamp(34px, 3.2vw, 56px);
+  max-width: 520px;
+}
+
+.loginExact__socialLabel {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.92;
+  margin-bottom: 10px;
+}
+
+.loginExact__socialIcons {
+  display: flex;
+  gap: 14px;
+}
+
+.loginExact__socialIcons a {
+  color: #fff;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.loginExact__socialIcons a svg {
+  width: 18px;
+  height: 18px;
+}
+
+.loginExact__socialIcons a:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* RIGHT */
+.loginExact__right {
+  position: relative;
+  border-radius: 40px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 10px;
+}
+
+/* fond discret côté formulaire */
+.loginExact__rightBg {
+  position: absolute;
+  inset: 0;
+  /* background:
+    radial-gradient(900px 560px at 15% 15%, rgba(255, 59, 48, 0.14), transparent 55%),
+    radial-gradient(740px 520px at 85% 85%, rgba(99, 102, 241, 0.14), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(244, 245, 247, 0.9) 100%); */
+}
+
+/* ✅ Glassmorphism UNIQUEMENT sur ce panneau */
+.loginExact__panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  padding: 28px 26px;
+  /* border-radius: 30px; */
+  /* background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.65); */
+  /* box-shadow: 0 24px 70px rgba(0, 0, 0, 0.12); */
+  /* backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px); */
+}
+
+/* ✅ TOPBAR (position) */
+.loginExact__topbarRight {
+  position: absolute;
+  top: 25px;
+  right: 278px;
+  z-index: 999999;
+  pointer-events: none;
+}
+
+/* ✅ wrapper pill (pour clipper les logos dedans) */
+.loginExact__topbarWrap {
+  position: relative;
+  width: 430px;
+  max-width: 78vw;
+  aspect-ratio: 739 / 115;
+  filter: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.18));
+}
+
+.loginExact__topbarRightSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ✅ la zone loop DANS la pill */
+.loginExact__topbarLogos {
+  position: absolute;
+  inset: 14% 6%;
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  opacity: 0.95;
+}
+
+/* ✅ FIX : enlever les points noirs (bullets) du LogoLoop */
+.loginExact__topbarLogos .logoloop__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.loginExact__topbarLogos .logoloop__item {
+  list-style: none;
+}
+.loginExact__topbarLogos .logoloop__item::marker {
+  content: "";
+}
+
+/* optionnel : rendre les images plus lisibles sur violet */
+.loginExact__topbarLogos img {
+  filter: brightness(1.05) contrast(1.05);
+}
+
+.loginExact__title {
+  font-weight: 800;
+  font-size: 32px;
+  letter-spacing: -0.02em;
+  margin: 0 0 22px;
+  color: #f2f2f2;
+}
+
+.loginExact__wave {
+  display: inline-block;
+  transform: translateY(1px);
+}
+
+.loginExact__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.loginExact__field {
+  position: relative;
+}
+
+.loginExact__input {
+  width: 100%;
+  height: 56px;
+  padding: 0 92px 0 18px;
+  border-radius: 18px;
+  border: 2px solid rgba(17, 24, 39, 0.10);
+  background: rgba(145, 145, 145, 0.478);
+  outline: none;
+  font-size: 15px;
+  color: #cecece;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.loginExact__input::placeholder {
+  color: rgba(255, 255, 255, 0.837);
+}
+
+.loginExact__input:focus {
+  border-color: rgba(255, 59, 48, 0.55);
+  background: rgba(194, 194, 194, 0.222);
+  box-shadow: 0 0 0 6px rgba(255, 58, 48, 0.073);
+}
+
+.loginExact__icon {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(17, 24, 39, 0.55);
+  pointer-events: none;
+}
+.loginExact__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.loginExact__toggle {
+  position: absolute;
+  right: 10px;
+  top: 17%;
+  /* transform: translateY(-50%); */
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: rgba(17, 24, 39, 0.65);
+  transition: background 0.15s ease;
+}
+
+.loginExact__toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.loginExact__toggle:hover {
+  background: rgba(17, 24, 39, 0.06);
+}
+
+.loginExact__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.loginExact__remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.927);
+  user-select: none;
+}
+
+.loginExact__remember input {
+  width: 16px;
+  height: 16px;
+  accent-color: #ff3b30;
+}
+
+.loginExact__forgot {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.955);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.loginExact__forgot:hover {
+  text-decoration: underline;
+}
+
+.loginExact__error {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 59, 48, 0.10);
+  border: 1px solid rgba(255, 59, 48, 0.25);
+  color: #b42318;
+  font-size: 14px;
+}
+
+.loginExact__submit {
+  height: 56px;
+  border: none;
+  border-radius: 18px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  background-position: center;
+
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+  box-shadow: 0 16px 34px rgba(124, 58, 237, 0.25);
+}
+
+.loginExact__submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 42px rgba(124, 58, 237, 0.30);
+}
+
+.loginExact__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+}
+
+/* Responsive */
+@media (max-width: 980px) {
+  .loginExact {
+    padding: 18px;
+  }
+
+  .loginExact__shape {
+    width: min(720px, 100%);
+    aspect-ratio: 1672 / 1069;
+    padding: 18px;
+  }
+
+  .loginExact__card {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .loginExact__left {
+    min-height: 420px;
+  }
+
+  .loginExact__right {
+    padding: 16px;
+  }
+
+  /* ellipse un peu plus petit en mobile */
+  .loginExact__ellipse {
+    top: -28px;
+    left: -28px;
+    width: 110px;
+    height: 110px;
+  }
+
+  /* dots un peu plus bas/petit sur mobile */
+  .loginExact__leftDots {
+    right: 14px;
+    bottom: 14px;
+    gap: 7px;
+  }
+  .loginExact__dot {
+    width: 7px;
+    height: 7px;
+  }
+  .loginExact__dot.is-active {
+    width: 16px;
+  }
+
+  .loginExact__topbarRight {
+    top: -22px;
+    right: -10px;
+  }
+
+  .loginExact__topbarWrap {
+    width: 200px;
+  }
+}
+
+
+/* =========================
+   Animated Button (Submit)
+   ========================= */
+
+.loginExact__submit.animated-button{
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  width: 100%;
+  height: 56px;
+  padding: 0 44px;
+
+  border: 0;
+  border-radius: 100px;
+
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.2px;
+
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.95);
+  cursor: pointer;
+  overflow: hidden;
+
+  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* SVG arrows */
+.loginExact__submit.animated-button svg{
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+  z-index: 3;
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.loginExact__submit.animated-button .arr-1{ right: 16px; }
+.loginExact__submit.animated-button .arr-2{ left: -25%; }
+
+/* expanding circle */
+.loginExact__submit.animated-button .circle{
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.95);
+  opacity: 0;
+  z-index: 1;
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* label */
+.loginExact__submit.animated-button .text{
+  position: relative;
+  z-index: 2;
+  transform: translateX(-10px);
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* hover */
+.loginExact__submit.animated-button:hover{
+  box-shadow: 0 0 0 12px transparent;
+  color: #1b1b1b;
+  border-radius: 14px;
+}
+
+.loginExact__submit.animated-button:hover .arr-1{ right: -25%; }
+.loginExact__submit.animated-button:hover .arr-2{ left: 16px; }
+.loginExact__submit.animated-button:hover .text{ transform: translateX(10px); }
+
+.loginExact__submit.animated-button:hover .circle{
+  width: 540px;
+  height: 540px;
+  opacity: 1;
+}
+
+/* active */
+.loginExact__submit.animated-button:active{
+  transform: scale(0.98);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.95);
+}
+
+/* disabled (loading) */
+.loginExact__submit.animated-button:disabled{
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+.loginExact__submit.animated-button:disabled .arr-1,
+.loginExact__submit.animated-button:disabled .arr-2{
+  opacity: 0.35;
+}
+/* =========================
+   Responsive — Mobile fixes
+   (sans toucher Login.jsx)
+   ========================= */
+
+@media (max-width: 720px) {
+  .loginExact {
+    min-height: 100dvh;
+    padding: 16px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .loginExact__shape {
+    width: 100%;
+    max-width: 720px;
+    padding: 14px;
+    aspect-ratio: auto; /* laisse la hauteur suivre le contenu (évite le débordement) */
+  }
+
+  .loginExact__card {
+    height: auto;
+  }
+
+  .loginExact__left {
+    min-height: 300px;
+    border-radius: 32px;
+  }
+
+  .loginExact__leftContent {
+    padding: 34px 28px;
+  }
+
+  .loginExact__kicker {
+    font-size: 16px;
+  }
+
+  .loginExact__heroTitle {
+    font-size: clamp(26px, 6vw, 42px);
+    max-width: 100%;
+  }
+
+  .loginExact__socialIcons {
+    gap: 12px;
+  }
+
+  .loginExact__socialIcons a {
+    width: 32px;
+    height: 32px;
+  }
+
+  .loginExact__right {
+    border-radius: 32px;
+    padding: 10px;
+  }
+
+  .loginExact__panel {
+    max-width: 100%;
+    padding: 22px 18px;
+  }
+
+  .loginExact__title {
+    font-size: 28px;
+    margin: 0 0 18px;
+  }
+
+  .loginExact__form {
+    gap: 14px;
+  }
+
+  .loginExact__input {
+    height: 52px;
+    border-radius: 16px;
+    padding: 0 84px 0 16px;
+    font-size: 14px;
+  }
+
+  .loginExact__submit,
+  .loginExact__submit.animated-button {
+    height: 52px;
+  }
+
+  /* déco : évite qu'elle chevauche le form sur mobile */
+  .loginExact__topbarRight {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .loginExact {
+    padding: 14px;
+    justify-content: flex-start;
+  }
+
+  .loginExact__shape {
+    padding: 12px;
+  }
+
+  .loginExact__left {
+    min-height: 240px;
+    border-radius: 28px;
+  }
+
+  .loginExact__leftContent {
+    padding: 24px 20px;
+  }
+
+  .loginExact__socialIcons a {
+    width: 30px;
+    height: 30px;
+  }
+
+  .loginExact__socialIcons a svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .loginExact__right {
+    border-radius: 28px;
+  }
+
+  .loginExact__panel {
+    padding: 18px 14px;
+  }
+
+  .loginExact__input {
+    height: 50px;
+    padding: 0 78px 0 14px;
+  }
+
+  .loginExact__toggle {
+    width: 36px;
+    height: 36px;
+  }
+
+  .loginExact__icon {
+    right: 48px;
+  }
+}
+
+@media (max-width: 380px) {
+  .loginExact__left {
+    min-height: 220px;
+  }
+
+  .loginExact__kicker {
+    font-size: 15px;
+  }
+
+  .loginExact__heroTitle {
+    font-size: clamp(24px, 7vw, 36px);
+  }
+
+  .loginExact__title {
+    font-size: 24px;
+  }
+
+  .loginExact__row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

@@ -47,7 +47,6 @@ export default function NotificationBell() {
       setNotifications(newNotifs);
       setUnread(newCount);
 
-      // toast quand ça augmente (sauf au tout premier load)
       const prev = prevCountRef.current;
       if (prev > 0 && newCount > prev) {
         const delta = newCount - prev;
@@ -59,7 +58,6 @@ export default function NotificationBell() {
       }
       prevCountRef.current = newCount;
     } catch (e) {
-      // silencieux: on évite de spam l'utilisateur
       console.error('Notifications: fetch failed', e);
     }
   }
@@ -74,12 +72,19 @@ export default function NotificationBell() {
   }
 
   useEffect(() => {
+    if (!token) {
+      setNotifications([]);
+      setUnread(0);
+      setOpen(false);
+      prevCountRef.current = 0;
+      return;
+    }
+
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 10000);
     return () => clearInterval(interval);
   }, [token]);
 
-  // close on outside click
   useEffect(() => {
     const onDown = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -99,7 +104,6 @@ export default function NotificationBell() {
 
   return (
     <>
-      {/* Toasts */}
       {toasts.length > 0 && (
         <div className="toastHost" aria-live="polite">
           {toasts.map((t) => (
@@ -117,19 +121,17 @@ export default function NotificationBell() {
         </div>
       )}
 
-      {/* Bell */}
       <div style={{ position: 'relative' }} ref={dropdownRef}>
         <button
           className="iconBtn"
           onClick={() => {
             const next = !open;
             setOpen(next);
-            if (next) fetchNotifications(); // refresh on open
+            if (next) fetchNotifications();
           }}
           aria-label="Notifications"
           style={{ position: 'relative' }}
         >
-          {/* simple bell icon */}
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
               d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2Zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2Z"
@@ -149,7 +151,7 @@ export default function NotificationBell() {
                 height: 9,
                 borderRadius: 999,
                 background: 'var(--danger)',
-                boxShadow: '0 0 0 2px rgba(247,247,251,.9)'
+                boxShadow: '0 0 0 2px var(--surface)'
               }}
             />
           )}
@@ -163,16 +165,24 @@ export default function NotificationBell() {
               top: 48,
               width: 360,
               maxWidth: '92vw',
-              background: 'white',
-              border: '1px solid rgba(15,23,42,.12)',
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
               borderRadius: 16,
-              boxShadow: '0 18px 60px rgba(15,23,42,.18)',
+              boxShadow: 'var(--shadow)',
               overflow: 'hidden',
               zIndex: 9999
             }}
           >
-            <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(15,23,42,.08)' }}>
-              <div style={{ fontWeight: 900, fontSize: 13 }}>Notifications</div>
+            <div
+              style={{
+                padding: 12,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderBottom: '1px solid var(--border)'
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--text)' }}>Notifications</div>
               <div className="badge badge-info">{unread} non lue(s)</div>
             </div>
 
@@ -192,7 +202,7 @@ export default function NotificationBell() {
                       background: 'transparent',
                       color: 'inherit',
                       border: 'none',
-                      borderBottom: '1px solid rgba(15,23,42,.06)',
+                      borderBottom: '1px solid rgba(255,255,255,.06)',
                       textAlign: 'left',
                       padding: 12,
                       borderRadius: 0,
@@ -205,15 +215,21 @@ export default function NotificationBell() {
                       </div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 900, fontSize: 13, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div
+                          style={{
+                            fontWeight: 900,
+                            fontSize: 13,
+                            marginBottom: 3,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            color: 'var(--text)'
+                          }}
+                        >
                           {n.title}
                         </div>
-                        <div style={{ fontSize: 12, color: 'rgba(15,23,42,.62)', marginBottom: 6 }}>
-                          {n.message}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'rgba(15,23,42,.45)' }}>
-                          {formatTimestamp(n.timestamp)}
-                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>{n.message}</div>
+                        <div style={{ fontSize: 11, color: 'rgba(229,231,235,.55)' }}>{formatTimestamp(n.timestamp)}</div>
                       </div>
                     </div>
                   </button>

@@ -1,0 +1,96 @@
+.upcCard {
+  border-radius: 20px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: linear-gradient(180deg, rgba(255, 205, 205, 0.18), rgba(255,255,255,0.03));
+  overflow: hidden;
+}
+
+.upcTop {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.upcIllustration {
+  width: 120px;
+  height: 86px;
+  border-radius: 18px;
+  background: rgba(255, 205, 205, 0.12);
+  border: 1px solid rgba(255,255,255,0.10);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upcAvatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  background: rgba(255, 160, 160, 0.22);
+  border: 1px solid rgba(255, 160, 160, 0.30);
+}
+
+.upcLines {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  right: 10px;
+  display: grid;
+  gap: 6px;
+  opacity: 0.55;
+}
+.upcLine {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.22);
+}
+.upcLine.short { width: 55%; }
+
+.upcMeta .upcName {
+  font-weight: 900;
+  font-size: 16px;
+}
+.upcMeta .upcSub {
+  opacity: 0.75;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.upcBottom {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 180, 180, 0.12);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 16px;
+  padding: 10px 10px;
+}
+
+.upcIcons { display: flex; gap: 8px; }
+.upcIconBtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: inherit;
+  cursor: pointer;
+}
+.upcIconBtn:hover { border-color: rgba(255,255,255,0.26); }
+
+.upcCta {
+  border-radius: 999px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.10);
+  cursor: pointer;
+  font-weight: 800;
+}
+.upcCta:hover { background: rgba(255,255,255,0.14); }

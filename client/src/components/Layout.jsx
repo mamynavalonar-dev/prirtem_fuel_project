@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import AnimatedSidebar from './AnimatedSidebar.jsx';
+import ThemeSwitch from './ThemeSwitch.jsx';
 
-// Définition des menus par rôle
 const MENU = {
   common: [
     { to: '/app', label: 'Dashboard' },
@@ -50,8 +50,6 @@ function getMenu(role) {
   return base;
 }
 
-// ✅ Très important: évite que tout le contenu (Dashboard charts etc.) re-render
-// à chaque open/close du sidebar ou à chaque tick de l’horloge.
 const MemoChildren = React.memo(function MemoChildren({ children }) {
   return children;
 });
@@ -61,21 +59,17 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Responsive
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Menu selon rôle
   const menu = useMemo(() => getMenu(user?.role), [user?.role]);
 
-  // Titre dynamique
   const currentTitle = useMemo(() => {
     const path = location.pathname;
     const found = menu.find((m) => m.to === path || path.startsWith(m.to + '/'));
     return found?.label || 'PRIRTEM';
   }, [menu, location.pathname]);
 
-  // ✅ Date/heure live (ne re-render plus les pages grâce à MemoChildren)
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -98,7 +92,6 @@ export default function Layout({ children }) {
     }).format(now);
   }, [now]);
 
-  // Resize listener
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
@@ -109,7 +102,6 @@ export default function Layout({ children }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Empêcher le scroll horizontal quand la sidebar bouge
   useEffect(() => {
     const prev = document.body.style.overflowX;
     document.body.style.overflowX = 'hidden';
@@ -126,9 +118,6 @@ export default function Layout({ children }) {
   const openMobile = useCallback(() => setMobileOpen(true), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  // ✅ IMPORTANT :
-  // - Sur desktop, on utilise une CSS var --app-main-offset (pilotée par AnimatedSidebar)
-  // - Et surtout: PAS de transition margin-left => pas de recalcul “à chaque frame”
   const mainStyle = useMemo(
     () => ({
       marginLeft: isMobile ? 0 : 'var(--app-main-offset, 110px)',
@@ -138,7 +127,7 @@ export default function Layout({ children }) {
       display: 'flex',
       flexDirection: 'column',
       gap: 16,
-      overflow: 'hidden', // le scroll est dans le conteneur, pas sur toute la page
+      overflow: 'hidden',
       background: 'var(--bg)'
     }),
     [isMobile]
@@ -154,7 +143,6 @@ export default function Layout({ children }) {
     []
   );
 
-  // ✅ LE CONTENEUR (comme ton image): toutes les pages dedans
   const contentContainerStyle = useMemo(
     () => ({
       flex: '1 1 auto',
@@ -178,7 +166,6 @@ export default function Layout({ children }) {
       />
 
       <main style={mainStyle}>
-        {/* Topbar */}
         <div className="topbar card" style={topbarStyle}>
           <div className="topbarLeft">
             {isMobile && (
@@ -202,6 +189,9 @@ export default function Layout({ children }) {
               <div className="topbarUserRole">{user?.role || ''}</div>
             </div>
 
+            {/* ✅ Switch thème AVANT la cloche */}
+            <ThemeSwitch />
+
             <NotificationBell />
 
             <button className="iconBtn" onClick={handleLogout} aria-label="Déconnexion">
@@ -210,7 +200,6 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        {/* ✅ CONTENEUR GLOBAL : tous les contenus ici */}
         <section className="card" style={contentContainerStyle}>
           <MemoChildren>{children}</MemoChildren>
         </section>

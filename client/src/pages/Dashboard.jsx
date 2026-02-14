@@ -1,4 +1,3 @@
-// client/src/pages/Dashboard.jsx
 import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
@@ -16,7 +15,8 @@ import {
   Title,
 } from 'chart.js';
 
-import { Line, Doughnut } from 'react-chartjs-2';
+import { Line } from 'react-chartjs-2';
+import Vehicle6AreaChart from '../components/Vehicle6AreaChart.jsx';
 
 ChartJS.register(
   CategoryScale,
@@ -45,13 +45,16 @@ function n0(v) {
   return Number.isFinite(x) ? x : 0;
 }
 
+function normPlate(v) {
+  return String(v || '').toUpperCase().replace(/\s+/g, '');
+}
+
 function fmtMoneyAr(v) {
   return n0(v).toLocaleString('fr-FR');
 }
 
 function fmtLiters(v) {
   const x = n0(v);
-  // garde 2 décimales mais sans forcer les zéros inutiles
   return x % 1 === 0 ? String(x) : x.toFixed(2);
 }
 
@@ -62,21 +65,198 @@ function buildQs(from, to) {
   return qs.toString();
 }
 
+function withQs(path, qs) {
+  return qs ? `${path}?${qs}` : path;
+}
+
 function clampPct(v) {
   if (!Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(100, v));
 }
 
-function pickPalette(i) {
-  const palette = [
-    { line: '#34d399', fill: 'rgba(52,211,153,.12)' }, // emerald
-    { line: '#60a5fa', fill: 'rgba(96,165,250,.12)' }, // blue
-    { line: '#f472b6', fill: 'rgba(244,114,182,.12)' }, // pink
-    { line: '#fb923c', fill: 'rgba(251,146,60,.12)' },  // orange
-    { line: '#a78bfa', fill: 'rgba(167,139,250,.12)' }, // violet
-    { line: '#22d3ee', fill: 'rgba(34,211,238,.12)' },  // cyan
-  ];
-  return palette[i % palette.length];
+/* ISO week start (Monday) as YYYY-MM-DD */
+function isoWeekStart(ymd) {
+  if (!ymd) return '';
+  const d = new Date(`${ymd}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  const day = (d.getDay() + 6) % 7; // Mon=0 ... Sun=6
+  d.setDate(d.getDate() - day);
+  return d.toLocaleDateString('fr-CA');
+}
+
+// ✅ Agrège des logs (generator/other) en timeline (jour ou semaine)
+function aggregateLogsTimeline(logs, valueField = 'montant_ar', threshold = 220) {
+  const rows = Array.isArray(logs) ? logs : [];
+  const daySet = new Set();
+  const raw = [];
+
+  for (const r of rows) {
+    const d = toYMD(r?.log_date);
+    if (!d) continue;
+    daySet.add(d);
+    raw.push({ d, v: n0(r?.[valueField]) });
+  }
+
+  const mode = daySet.size > threshold ? 'week' : 'day';
+  const unitLabel = mode === 'week' ? 'semaines' : 'jours';
+
+  const m = new Map();
+  for (const p of raw) {
+    const key = mode === 'week' ? isoWeekStart(p.d) : p.d;
+    if (!key) continue;
+    m.set(key, (m.get(key) || 0) + p.v);
+  }
+
+  const labels = Array.from(m.keys()).filter(Boolean).sort();
+  const values = labels.map((k) => m.get(k));
+
+  return { labels, values, labelsCount: labels.length, unitLabel, mode };
+}
+
+/* ===================== THEME HELPERS (CSS TOKENS) ===================== */
+function cssVar(name, fallback = '') {
+  if (typeof window === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name);
+  return (v || '').trim() || fallback;
+}
+
+function withAlpha(color, a = 1) {
+  if (!color) return `rgba(0,0,0,${a})`;
+  const c = String(color).trim();
+
+  // rgba(...)
+  if (c.startsWith('rgba(')) {
+    return c.replace(/rgba\(([^)]+)\)/, (_, inside) => {
+      const parts = inside.split(',').map((x) => x.trim());
+      const r = parts[0] ?? '0';
+      const g = parts[1] ?? '0';
+      const b = parts[2] ?? '0';
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    });
+  }
+
+  // rgb(...)
+  if (c.startsWith('rgb(')) {
+    const inside = c.slice(c.indexOf('(') + 1, c.lastIndexOf(')'));
+    return `rgba(${inside}, ${a})`;
+  }
+
+  // hex
+  if (c.startsWith('#')) {
+    let h = c.replace('#', '');
+    if (h.length === 3) h = h.split('').map((x) => x + x).join('');
+    if (h.length !== 6) return `rgba(0,0,0,${a})`;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  // fallback: on n'essaie pas de convertir des noms CSS
+  return c;
+}
+
+function useChartTokens() {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setTick((x) => x + 1));
+    obs.observe(el, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+
+  return useMemo(() => {
+    const themeName =
+      (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')) || 'light';
+    const isDark = themeName === 'dark';
+
+    const surface = cssVar('--surface', isDark ? '#0b1220' : '#ffffff');
+    const text = cssVar('--text', isDark ? '#e5e7eb' : '#0f172a');
+    const muted = cssVar('--muted', isDark ? 'rgba(229,231,235,.62)' : '#64748b');
+    const border = cssVar('--border', isDark ? 'rgba(255,255,255,.10)' : 'rgba(15,23,42,.12)');
+    const accent = cssVar('--accent', isDark ? '#60a5fa' : '#2563eb');
+    const ring = cssVar('--ring', isDark ? 'rgba(96,165,250,.30)' : 'rgba(37,99,235,.35)');
+    const warning = cssVar('--warning', '#f59e0b');
+
+    return {
+      themeName,
+      isDark,
+      surface,
+      text,
+      muted,
+      border,
+      accent,
+      ring,
+      warning,
+
+      grid: withAlpha(border, isDark ? 0.12 : 0.10),
+      gridSoft: withAlpha(border, isDark ? 0.07 : 0.06),
+      tooltipBg: withAlpha(surface, 0.96),
+      tooltipBorder: withAlpha(border, isDark ? 0.22 : 0.25),
+    };
+  }, [tick]);
+}
+
+// ✅ Dataset “area + gradient” basé sur tokens (plus de regex fragile)
+function makeAreaDataset(label, values, lineColor, fillAlpha = 0.22) {
+  return {
+    label,
+    data: values,
+    borderColor: lineColor,
+    borderWidth: 2,
+    tension: 0.42,
+    pointRadius: 0,
+    pointHitRadius: 10,
+    fill: 'origin',
+    backgroundColor: (ctx) => {
+      const chart = ctx.chart;
+      const area = chart.chartArea;
+      const top = withAlpha(lineColor, fillAlpha);
+      const bottom = withAlpha(lineColor, 0);
+
+      if (!area) return top; // 1er rendu
+      const g = chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+      g.addColorStop(0, top);
+      g.addColorStop(1, bottom);
+      return g;
+    },
+  };
+}
+
+/* ✅ ajuste la taille en fonction de la longueur du nombre (sans casser 3 colonnes) */
+function valueFontSizeFor(text) {
+  const raw = String(text || '').replace(/\s/g, '').replace(/,/g, '');
+  const len = raw.length;
+
+  if (len >= 12) return 'clamp(12px, 0.95vw, 15px)';
+  if (len >= 10) return 'clamp(13px, 1.05vw, 17px)';
+  return 'clamp(16px, 1.25vw, 20px)';
+}
+
+/* ✅ media query hook */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const m = window.matchMedia(query);
+    const onChange = () => setMatches(m.matches);
+    onChange();
+    if (m.addEventListener) m.addEventListener('change', onChange);
+    else m.addListener(onChange);
+
+    return () => {
+      if (m.removeEventListener) m.removeEventListener('change', onChange);
+      else m.removeListener(onChange);
+    };
+  }, [query]);
+
+  return matches;
 }
 
 function PremiumKpiCard({
@@ -96,6 +276,14 @@ function PremiumKpiCard({
     blue: { a1: '#60a5fa', a2: '#3b82f6' },
   };
   const acc = accentMap[accent] || accentMap.emerald;
+
+  const moneyStr = fmtMoneyAr(montant);
+  const litersStr = fmtLiters(liters);
+  const refillsStr = String(n0(refills));
+
+  const moneyFont = valueFontSizeFor(moneyStr);
+  const litersFont = valueFontSizeFor(litersStr);
+  const refillsFont = valueFontSizeFor(refillsStr);
 
   return (
     <div
@@ -123,12 +311,10 @@ function PremiumKpiCard({
       />
 
       <div style={{ position: 'relative' }}>
-        <div className="rowBetween" style={{ alignItems: 'center' }}>
+        <div className="rowBetween" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 10, rowGap: 10 }}>
           <div>
             <div style={{ fontWeight: 900, fontSize: 16, color: '#e5e7eb' }}>{title}</div>
-            <div style={{ fontSize: 12, color: 'rgba(229,231,235,.65)', marginTop: 2 }}>
-              {subtitle}
-            </div>
+            <div style={{ fontSize: 12, color: 'rgba(229,231,235,.65)', marginTop: 2 }}>{subtitle}</div>
           </div>
 
           <div
@@ -160,14 +346,17 @@ function PremiumKpiCard({
         </div>
 
         <div
+          className="kpiMiniGrid"
           style={{
             marginTop: 14,
             display: 'grid',
-            gridTemplateColumns: refills !== null && refills !== undefined ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))',
+            gridTemplateColumns:
+              refills !== null && refills !== undefined ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))',
             gap: 12,
           }}
         >
           <div
+            className="kpiMini"
             style={{
               background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))',
               border: '1px solid rgba(255,255,255,.08)',
@@ -175,11 +364,30 @@ function PremiumKpiCard({
               padding: 12,
               position: 'relative',
               overflow: 'hidden',
+              minWidth: 0,
             }}
           >
             <div style={{ color: 'rgba(229,231,235,.65)', fontSize: 12, fontWeight: 800 }}>Montant (Ar)</div>
-            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: '#fff' }}>
-              {fmtMoneyAr(montant)} <span style={{ fontSize: 14, opacity: 0.75 }}>Ar</span>
+            <div
+              className="kpiValue"
+              style={{
+                marginTop: 6,
+                fontSize: moneyFont,
+                fontWeight: 900,
+                color: '#fff',
+                lineHeight: 1.15,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '-0.02em',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={`${moneyStr} Ar`}
+            >
+              {moneyStr}{' '}
+              <span className="kpiUnit" style={{ fontSize: 'clamp(11px, .9vw, 12px)', opacity: 0.75 }}>
+                Ar
+              </span>
             </div>
             <div
               style={{
@@ -195,6 +403,7 @@ function PremiumKpiCard({
           </div>
 
           <div
+            className="kpiMini"
             style={{
               background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))',
               border: '1px solid rgba(255,255,255,.08)',
@@ -202,11 +411,30 @@ function PremiumKpiCard({
               padding: 12,
               position: 'relative',
               overflow: 'hidden',
+              minWidth: 0,
             }}
           >
             <div style={{ color: 'rgba(229,231,235,.65)', fontSize: 12, fontWeight: 800 }}>Litres</div>
-            <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: '#dbeafe' }}>
-              {fmtLiters(liters)} <span style={{ fontSize: 14, opacity: 0.75 }}>L</span>
+            <div
+              className="kpiValue"
+              style={{
+                marginTop: 6,
+                fontSize: litersFont,
+                fontWeight: 900,
+                color: '#dbeafe',
+                lineHeight: 1.15,
+                fontVariantNumeric: 'tabular-nums',
+                letterSpacing: '-0.02em',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+              title={`${litersStr} L`}
+            >
+              {litersStr}{' '}
+              <span className="kpiUnit" style={{ fontSize: 'clamp(11px, .9vw, 12px)', opacity: 0.75 }}>
+                L
+              </span>
             </div>
             <div
               style={{
@@ -223,6 +451,7 @@ function PremiumKpiCard({
 
           {(refills !== null && refills !== undefined) && (
             <div
+              className="kpiMini"
               style={{
                 background: 'linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03))',
                 border: '1px solid rgba(255,255,255,.08)',
@@ -230,11 +459,27 @@ function PremiumKpiCard({
                 padding: 12,
                 position: 'relative',
                 overflow: 'hidden',
+                minWidth: 0,
               }}
             >
               <div style={{ color: 'rgba(229,231,235,.65)', fontSize: 12, fontWeight: 800 }}>Repleins</div>
-              <div style={{ marginTop: 6, fontSize: 22, fontWeight: 900, color: '#bbf7d0' }}>
-                {n0(refills)}
+              <div
+                className="kpiValue"
+                style={{
+                  marginTop: 6,
+                  fontSize: refillsFont,
+                  fontWeight: 900,
+                  color: '#bbf7d0',
+                  lineHeight: 1.15,
+                  fontVariantNumeric: 'tabular-nums',
+                  letterSpacing: '-0.02em',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                title={refillsStr}
+              >
+                {refillsStr}
               </div>
               <div
                 style={{
@@ -253,9 +498,7 @@ function PremiumKpiCard({
 
         <div style={{ marginTop: 14 }}>
           <div className="rowBetween" style={{ marginBottom: 8 }}>
-            <div style={{ color: 'rgba(229,231,235,.65)', fontSize: 12, fontWeight: 800 }}>
-              Part du total (montant)
-            </div>
+            <div style={{ color: 'rgba(229,231,235,.65)', fontSize: 12, fontWeight: 800 }}>Part du total (montant)</div>
             <div style={{ color: 'rgba(229,231,235,.80)', fontSize: 12, fontWeight: 900 }}>
               {clampPct(pct).toFixed(0)}%
             </div>
@@ -279,9 +522,10 @@ function PremiumKpiCard({
             />
           </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
 
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
           <button
+            className="kpiOpenBtn"
             onClick={onOpen}
             style={{
               padding: '10px 14px',
@@ -301,16 +545,14 @@ function PremiumKpiCard({
   );
 }
 
-function ChartCard({ title, children, right }) {
+function ChartCard({ title, children, right, className, style, height = 320 }) {
   return (
-    <div className="card" style={{ padding: 16 }}>
+    <div className={`card ${className || ''}`} style={{ padding: 16, ...style }}>
       <div className="rowBetween" style={{ marginBottom: 10 }}>
         <h3 style={{ margin: 0 }}>{title}</h3>
         {right || null}
       </div>
-      <div style={{ height: 320 }}>
-        {children}
-      </div>
+      <div style={{ height }}>{children}</div>
     </div>
   );
 }
@@ -318,20 +560,25 @@ function ChartCard({ title, children, right }) {
 function Dashboard() {
   const { token } = useAuth();
 
+  const tokens = useChartTokens();
+  const isNarrow = useMediaQuery('(max-width: 900px)');
+
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
   const [vehicles, setVehicles] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [dailyTotal, setDailyTotal] = useState([]);
   const [byVehicle, setByVehicle] = useState([]);
-  const [seriesByVehicleId, setSeriesByVehicleId] = useState({}); // { [id]: points[] }
+  const [seriesByVehicleId, setSeriesByVehicleId] = useState({});
+
+  const [generatorLogs, setGeneratorLogs] = useState([]);
+  const [otherLogs, setOtherLogs] = useState([]);
+  const [loadingGenOther, setLoadingGenOther] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [loadingSeries, setLoadingSeries] = useState(false);
   const [error, setError] = useState(null);
 
-  // ✅ Charge la liste des véhicules
   useEffect(() => {
     apiFetch('/api/meta/vehicles', { token })
       .then((d) => setVehicles(d.vehicles || []))
@@ -344,59 +591,122 @@ function Dashboard() {
     return list.slice(0, 6);
   }, [vehicles]);
 
-    const loadSeries6 = useCallback(async (qs) => {
-    // ✅ Séries individuelles pour 6 véhicules (1 seule requête backend)
-    if (!vehicleList6.length) {
-      setSeriesByVehicleId({});
-      return;
-    }
+  // ✅ Priorité aux véhicules qui ont réellement des données (top montant), sinon fallback sur la liste meta
+  const vehicleTop6 = useMemo(() => {
+    const topPlates = (byVehicle || []).slice(0, 6).map((r) => r.plate).filter(Boolean);
+    if (!topPlates.length) return vehicleList6;
 
-    setLoadingSeries(true);
-    try {
-      const ids = vehicleList6.map((v) => v.id).join(',');
-      const bulk = await apiFetch(`/api/fuel/kpi/daily/bulk?${qs}&vehicle_ids=${encodeURIComponent(ids)}`, { token });
-      const series = bulk?.series || {};
+    const map = new Map((vehicles || []).map((v) => [normPlate(v.plate), v]));
+    const picked = topPlates.map((p) => map.get(normPlate(p))).filter(Boolean);
+    return picked.length ? picked : vehicleList6;
+  }, [byVehicle, vehicles, vehicleList6]);
 
-      const obj = {};
-      for (const v of vehicleList6) {
-        const pts = (series[v.id] || []).map((p) => ({
-          log_date: toYMD(p.log_date),
-          liters: n0(p.liters),
-          montant_ar: n0(p.montant_ar),
-          refills: n0(p.refills),
-        }));
-        obj[v.id] = pts;
+  const loadSeries6 = useCallback(
+    async (qs, preferPlates = null) => {
+      let list6 = [];
+
+      const plates = (Array.isArray(preferPlates) && preferPlates.length)
+        ? preferPlates
+        : (byVehicle || []).slice(0, 6).map((r) => r.plate).filter(Boolean);
+
+      if (plates.length && (vehicles || []).length) {
+        const map = new Map((vehicles || []).map((v) => [normPlate(v.plate), v]));
+        list6 = plates.map((p) => map.get(normPlate(p))).filter(Boolean);
       }
 
-      setSeriesByVehicleId(obj);
-    } catch (_) {
-      setSeriesByVehicleId({});
-    } finally {
-      setLoadingSeries(false);
-    }
-  }, [token, vehicleList6]);
+      if (!list6.length) list6 = vehicleTop6;
+      if (!list6.length) list6 = vehicleList6;
 
-async function loadAll() {
+      if (!list6.length) {
+        setSeriesByVehicleId({});
+        return;
+      }
+
+      setLoadingSeries(true);
+
+      try {
+        const ids = list6.map((v) => v.id).filter(Boolean).join(',');
+        const p = new URLSearchParams(qs || '');
+        p.set('vehicle_ids', ids);
+
+        const bulk = await apiFetch(`/api/fuel/kpi/daily/bulk?${p.toString()}`, { token });
+        const series = bulk?.series || {};
+
+        const obj = {};
+        for (const v of list6) {
+          const pts = (series[v.id] || []).map((pt) => ({
+            log_date: toYMD(pt.log_date),
+            liters: n0(pt.liters),
+            montant_ar: n0(pt.montant_ar),
+            refills: n0(pt.refills),
+          }));
+          obj[v.id] = pts;
+        }
+        setSeriesByVehicleId(obj);
+      } catch (_) {
+        // ✅ fallback: 1 requête par véhicule
+        try {
+          const pairs = await Promise.all(
+            list6.map(async (v) => {
+              const qsv = new URLSearchParams(qs || '');
+              qsv.set('vehicle_id', v.id);
+              const d = await apiFetch(`/api/fuel/kpi/daily?${qsv.toString()}`, { token });
+              const pts = (d.points || []).map((pt) => ({
+                log_date: toYMD(pt.log_date),
+                liters: n0(pt.liters),
+                montant_ar: n0(pt.montant_ar),
+                refills: n0(pt.refills),
+              }));
+              return [v.id, pts];
+            })
+          );
+
+          const obj = {};
+          for (const [id, pts] of pairs) obj[id] = pts;
+          setSeriesByVehicleId(obj);
+        } catch (_) {
+          setSeriesByVehicleId({});
+        }
+      } finally {
+        setLoadingSeries(false);
+      }
+    },
+    [token, vehicles, byVehicle, vehicleTop6, vehicleList6]
+  );
+
+  const loadGenOtherLogs = useCallback(
+    async (qs) => {
+      if (!token) return;
+      setLoadingGenOther(true);
+      try {
+        const [g, o] = await Promise.all([
+          apiFetch(withQs('/api/fuel/generator', qs), { token }),
+          apiFetch(withQs('/api/fuel/other', qs), { token }),
+        ]);
+        setGeneratorLogs(g?.logs || []);
+        setOtherLogs(o?.logs || []);
+      } catch (_) {
+        setGeneratorLogs([]);
+        setOtherLogs([]);
+      } finally {
+        setLoadingGenOther(false);
+      }
+    },
+    [token]
+  );
+
+  async function loadAll() {
     setLoading(true);
     setError(null);
     try {
       const qs = buildQs(from, to);
 
-      const [sum, daily, top] = await Promise.all([
-        apiFetch(`/api/fuel/report/summary?${qs}`, { token }),
-        apiFetch(`/api/fuel/kpi/daily?${qs}`, { token }),
-        apiFetch(`/api/fuel/kpi/by-vehicle?${qs}`, { token }),
+      const [sum, top] = await Promise.all([
+        apiFetch(withQs('/api/fuel/report/summary', qs), { token }),
+        apiFetch(withQs('/api/fuel/kpi/by-vehicle', qs), { token }),
       ]);
 
       setSummary(sum || null);
-
-      const points = (daily.points || []).map((p) => ({
-        log_date: toYMD(p.log_date),
-        liters: n0(p.liters),
-        montant_ar: n0(p.montant_ar),
-        refills: n0(p.refills),
-      }));
-      setDailyTotal(points);
 
       const rows = (top.rows || []).map((r) => ({
         plate: r.plate,
@@ -406,7 +716,8 @@ async function loadAll() {
       }));
       setByVehicle(rows);
 
-      await loadSeries6(qs);
+      const plates6 = rows.slice(0, 6).map((r) => r.plate).filter(Boolean);
+      await loadSeries6(qs, plates6);
     } catch (e) {
       setError(e?.message || 'Erreur de chargement');
     } finally {
@@ -414,20 +725,25 @@ async function loadAll() {
     }
   }
 
-  // 1er chargement + recharge si la liste des véhicules arrive après
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    // ✅ Quand les véhicules sont chargés, on charge UNIQUEMENT les 6 séries (pas tout le dashboard)
-    if (vehicles.length) {
-      const qs = buildQs(from, to);
-      loadSeries6(qs);
-    }
+    if (!vehicles.length) return;
+    const qs = buildQs(from, to);
+    const plates6 = (byVehicle || []).slice(0, 6).map((r) => r.plate).filter(Boolean);
+    loadSeries6(qs, plates6.length ? plates6 : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vehicles.length]);
+  }, [vehicles.length, byVehicle.length]);
+
+  // ✅ Timeline “Graphique linéaire” pour Groupe électrogène + Autres
+  useEffect(() => {
+    const qs = buildQs(from, to);
+    loadGenOtherLogs(qs);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [from, to]);
 
   const safeSummary = useMemo(() => {
     const s = summary || {};
@@ -456,264 +772,168 @@ async function loadAll() {
       safeSummary.vehicle.montant_ar +
       safeSummary.generator.montant_ar +
       safeSummary.other.montant_ar;
-
     const totalLiters =
       safeSummary.vehicle.liters +
       safeSummary.generator.liters +
       safeSummary.other.liters;
-
     return { totalMontant, totalLiters };
   }, [safeSummary]);
 
-  const pctVehicle = useMemo(() => {
-    const t = totals.totalMontant || 1;
-    return (safeSummary.vehicle.montant_ar / t) * 100;
-  }, [safeSummary, totals]);
+  const pctVehicle = useMemo(
+    () => (safeSummary.vehicle.montant_ar / (totals.totalMontant || 1)) * 100,
+    [safeSummary, totals]
+  );
+  const pctGenerator = useMemo(
+    () => (safeSummary.generator.montant_ar / (totals.totalMontant || 1)) * 100,
+    [safeSummary, totals]
+  );
+  const pctOther = useMemo(
+    () => (safeSummary.other.montant_ar / (totals.totalMontant || 1)) * 100,
+    [safeSummary, totals]
+  );
 
-  const pctGenerator = useMemo(() => {
-    const t = totals.totalMontant || 1;
-    return (safeSummary.generator.montant_ar / t) * 100;
-  }, [safeSummary, totals]);
-
-  const pctOther = useMemo(() => {
-    const t = totals.totalMontant || 1;
-    return (safeSummary.other.montant_ar / t) * 100;
-  }, [safeSummary, totals]);
-
+  // ✅ Base options (token-aware)
   const baseLineOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    animation: false,
+    animation: { duration: 650 },
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { position: 'top' },
-      tooltip: { enabled: true },
+      legend: {
+        position: 'top',
+        labels: { color: tokens.text, font: { weight: '700' } },
+      },
       title: { display: false },
+      tooltip: {
+        enabled: true,
+        displayColors: false,
+        backgroundColor: tokens.tooltipBg,
+        borderColor: tokens.tooltipBorder,
+        borderWidth: 1,
+        titleColor: tokens.text,
+        bodyColor: tokens.muted,
+        padding: 10,
+        cornerRadius: 12,
+      },
     },
     scales: {
       x: {
-        ticks: { maxRotation: 45, minRotation: 45 },
-        grid: { color: 'rgba(15,23,42,.06)' },
+        ticks: {
+          color: tokens.muted,
+          font: { weight: '700' },
+          maxRotation: 0,
+          minRotation: 0,
+          autoSkip: true,
+          maxTicksLimit: isNarrow ? 7 : 12,
+        },
+        grid: { color: tokens.gridSoft, drawBorder: false },
       },
       y: {
-        grid: { color: 'rgba(15,23,42,.06)' },
-        ticks: { callback: (v) => String(v) },
+        grid: { color: tokens.grid, drawBorder: false },
+        ticks: { color: tokens.muted, font: { weight: '700' } },
       },
     },
-  }), []);
+  }), [tokens, isNarrow]);
 
-  // ===== Line double-axe : Total véhicules (Montant vs Litres)
-  const totalVehicleChart = useMemo(() => {
-    const labels = dailyTotal.map((p) => p.log_date);
-    return {
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Montant véhicule (Ar)',
-            data: dailyTotal.map((p) => p.montant_ar),
-            borderColor: '#34d399',
-            backgroundColor: 'rgba(52,211,153,.12)',
-            tension: 0.35,
-            fill: true,
-            yAxisID: 'y',
-            pointRadius: 0,
-          },
-          {
-            label: 'Litres véhicule',
-            data: dailyTotal.map((p) => p.liters),
-            borderColor: '#60a5fa',
-            backgroundColor: 'rgba(96,165,250,.10)',
-            tension: 0.35,
-            fill: false,
-            yAxisID: 'y1',
-            pointRadius: 0,
-          },
-        ],
-      },
-      options: {
-        ...baseLineOptions,
-        scales: {
-          x: baseLineOptions.scales.x,
-          y: {
-            position: 'left',
-            grid: { color: 'rgba(15,23,42,.06)' },
-            ticks: {
-              callback: (v) => String(v),
-            },
-          },
-          y1: {
-            position: 'right',
-            grid: { drawOnChartArea: false },
-            ticks: {
-              callback: (v) => String(v),
-            },
-          },
-        },
-      },
-    };
-  }, [dailyTotal, baseLineOptions]);
-
-  // ===== Doughnut Montant : Groupe vs Autres
-  const doughnutMontant = useMemo(() => ({
-    data: {
-      labels: ['Groupe électrogène', 'Autres'],
-      datasets: [
-        {
-          label: 'Montant (Ar)',
-          data: [safeSummary.generator.montant_ar, safeSummary.other.montant_ar],
-          backgroundColor: ['rgba(251,146,60,.75)', 'rgba(167,139,250,.75)'],
-          borderColor: ['rgba(251,146,60,1)', 'rgba(167,139,250,1)'],
-          borderWidth: 1,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-    animation: false,
-      plugins: { legend: { position: 'bottom' } },
-      cutout: '68%',
-    },
-  }), [safeSummary]);
-
-  // ===== Doughnut Litres : Groupe vs Autres
-  const doughnutLiters = useMemo(() => ({
-    data: {
-      labels: ['Groupe électrogène', 'Autres'],
-      datasets: [
-        {
-          label: 'Litres',
-          data: [safeSummary.generator.liters, safeSummary.other.liters],
-          backgroundColor: ['rgba(34,211,238,.70)', 'rgba(96,165,250,.70)'],
-          borderColor: ['rgba(34,211,238,1)', 'rgba(96,165,250,1)'],
-          borderWidth: 1,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-    animation: false,
-      plugins: { legend: { position: 'bottom' } },
-      cutout: '68%',
-    },
-  }), [safeSummary]);
-
-  // ===== Multi-axes : 6 véhicules (Montant) — 1 axe par véhicule (axes secondaires masqués)
+  // ✅ Graphique multi-lignes (6 véhicules) — agrège semaine si trop de points
   const multiVehicleChart = useMemo(() => {
-    const ids = vehicleList6.map((v) => v.id);
-    const allDates = new Set();
-    for (const id of ids) {
-      const pts = seriesByVehicleId[id] || [];
-      for (const p of pts) allDates.add(p.log_date);
+    const v6 = (vehicleTop6 && vehicleTop6.length ? vehicleTop6 : vehicleList6) || [];
+
+    const rawDays = new Set();
+    for (const v of v6) {
+      const pts = seriesByVehicleId?.[v.id] || [];
+      for (const p of pts) if (p?.log_date) rawDays.add(p.log_date);
     }
-    const labels = Array.from(allDates);
-    labels.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const rawCount = rawDays.size;
 
-    const scales = {
-      x: {
-        ticks: { maxRotation: 45, minRotation: 45 },
-        grid: { color: 'rgba(15,23,42,.06)' },
-      },
-    };
+    const mode = rawCount > 220 ? 'week' : 'day';
+    const unitLabel = mode === 'week' ? 'semaines' : 'jours';
 
-    const datasets = vehicleList6.map((v, idx) => {
-      const pts = seriesByVehicleId[v.id] || [];
-      const map = new Map(pts.map((p) => [p.log_date, p.montant_ar]));
-      const pal = pickPalette(idx);
-      const axisId = `y_${v.id}`;
+    const maps = v6.map((v) => {
+      const pts = seriesByVehicleId?.[v.id] || [];
+      const m = new Map();
+      for (const p of pts) {
+        const d = toYMD(p.log_date);
+        if (!d) continue;
+        const key = mode === 'week' ? isoWeekStart(d) : d;
+        if (!key) continue;
+        m.set(key, (m.get(key) || 0) + n0(p.montant_ar));
+      }
+      return m;
+    });
 
-      // ✅ un axe par véhicule
-      scales[axisId] = {
-        position: idx % 2 === 0 ? 'left' : 'right',
-        display: idx === 0, // n'affiche que le 1er axe (sinon trop chargé)
-        grid: idx === 0 ? { color: 'rgba(15,23,42,.06)' } : { drawOnChartArea: false },
-        ticks: idx === 0 ? { callback: (val) => String(val) } : { display: false },
-      };
+    const labelsSet = new Set();
+    for (const m of maps) for (const k of m.keys()) labelsSet.add(k);
+    const labels = Array.from(labelsSet).filter(Boolean).sort();
 
+    const series = v6.map((v, i) => {
+      const m = maps[i];
       return {
-        label: v.plate || `Véhicule ${idx + 1}`,
-        data: labels.map((d) => n0(map.get(d))),
-        borderColor: pal.line,
-        backgroundColor: pal.fill,
-        tension: 0.35,
-        fill: false,
-        yAxisID: axisId,
-        pointRadius: 0,
+        label: v.plate || `Véhicule ${i + 1}`,
+        data: labels.map((k) => (m.has(k) ? m.get(k) : null)),
       };
     });
 
     return {
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-    animation: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: { enabled: true },
-        },
-        scales,
-      },
+      labelsCount: labels.length,
+      unitLabel,
+      labels,
+      series,
     };
-  }, [vehicleList6, seriesByVehicleId]);
+  }, [vehicleTop6, vehicleList6, seriesByVehicleId]);
 
-  // ===== 6 charts individuels : (Montant + Litres en double axe)
-  const perVehicleCharts = useMemo(() => {
-    return vehicleList6.map((v, idx) => {
-      const pts = seriesByVehicleId[v.id] || [];
-      const labels = pts.map((p) => p.log_date);
-      const pal = pickPalette(idx);
+  const generatorTimeline = useMemo(
+    () => aggregateLogsTimeline(generatorLogs, 'montant_ar'),
+    [generatorLogs]
+  );
 
-      return {
-        key: v.id,
-        plate: v.plate,
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'Montant (Ar)',
-              data: pts.map((p) => p.montant_ar),
-              borderColor: pal.line,
-              backgroundColor: pal.fill,
-              tension: 0.35,
-              fill: true,
-              yAxisID: 'y',
-              pointRadius: 0,
-            },
-            {
-              label: 'Litres',
-              data: pts.map((p) => p.liters),
-              borderColor: '#60a5fa',
-              backgroundColor: 'rgba(96,165,250,.10)',
-              tension: 0.35,
-              fill: false,
-              yAxisID: 'y1',
-              pointRadius: 0,
-            },
-          ],
-        },
-        options: {
-          ...baseLineOptions,
-          scales: {
-            x: baseLineOptions.scales.x,
-            y: {
-              position: 'left',
-              grid: { color: 'rgba(15,23,42,.06)' },
-              ticks: { callback: (val) => String(val) },
-            },
-            y1: {
-              position: 'right',
-              grid: { drawOnChartArea: false },
-              ticks: { callback: (val) => String(val) },
-            },
+  const otherTimeline = useMemo(
+    () => aggregateLogsTimeline(otherLogs, 'montant_ar'),
+    [otherLogs]
+  );
+
+  const miniAreaOptions = useMemo(() => ({
+    ...baseLineOptions,
+    plugins: {
+      ...baseLineOptions.plugins,
+      legend: { display: false },
+    },
+    scales: {
+      ...baseLineOptions.scales,
+      x: {
+        ...baseLineOptions.scales.x,
+        grid: { color: 'transparent', drawBorder: false }, // style premium (comme image 1)
+      },
+      y: {
+        ...baseLineOptions.scales.y,
+        ticks: {
+          ...baseLineOptions.scales.y.ticks,
+          callback: (v) => {
+            const x = Number(v);
+            if (!Number.isFinite(x)) return v;
+            if (x >= 1_000_000) return (x / 1_000_000).toFixed(1) + 'M';
+            if (x >= 1_000) return (x / 1_000).toFixed(0) + 'k';
+            return String(x);
           },
         },
-      };
-    });
-  }, [vehicleList6, seriesByVehicleId, baseLineOptions]);
+      },
+    },
+  }), [baseLineOptions]);
+
+  // ✅ Couleurs basées tokens (warning / accent) => 100% cohérent UI
+  const generatorLineData = useMemo(() => ({
+    labels: generatorTimeline.labels,
+    datasets: [
+      makeAreaDataset('Montant (Ar)', generatorTimeline.values, tokens.warning, 0.22),
+    ],
+  }), [generatorTimeline, tokens.warning]);
+
+  const otherLineData = useMemo(() => ({
+    labels: otherTimeline.labels,
+    datasets: [
+      makeAreaDataset('Montant (Ar)', otherTimeline.values, tokens.accent, 0.20),
+    ],
+  }), [otherTimeline, tokens.accent]);
 
   return (
     <>
@@ -729,8 +949,8 @@ async function loadAll() {
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
           <div className="row" style={{ alignItems: 'end' }}>
-            <button className="btn" onClick={loadAll} disabled={loading || loadingSeries}>
-              {(loading || loadingSeries) ? 'Chargement...' : 'Actualiser'}
+            <button className="btn" onClick={loadAll} disabled={loading || loadingSeries || loadingGenOther}>
+              {(loading || loadingSeries || loadingGenOther) ? 'Chargement...' : 'Actualiser'}
             </button>
           </div>
         </div>
@@ -742,16 +962,7 @@ async function loadAll() {
         </div>
       )}
 
-      {/* KPI cards premium */}
-      <div
-        className="kpiRow3"
-        style={{
-          marginTop: 14,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: 14,
-        }}
-      >
+      <div className="kpiRow3" style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
         <PremiumKpiCard
           title="Véhicules"
           subtitle="Suivi carburant"
@@ -786,91 +997,138 @@ async function loadAll() {
         />
       </div>
 
-      {/* Charts zone */}
-      <div
-        style={{
-          marginTop: 16,
-          display: 'grid',
-          gridTemplateColumns: '1.2fr .8fr',
-          gap: 14,
-          alignItems: 'start',
-        }}
-      >
-        {/* Total véhicules double axe */}
+      {/* ✅ 2 colonnes (gros chart full width + 2 petits charts) */}
+      <div className="dashCharts3" style={{ marginTop: 16 }}>
         <ChartCard
-          title="Véhicules — évolution par jour (total)"
-          right={
-            <span className="badge badge-info">
-              {dailyTotal.length} jours
-            </span>
-          }
+          className="dashBigChart"
+          title="Top 6 véhicules — évolution (Montant Ar)"
+          right={<span className="badge badge-info">{multiVehicleChart.labelsCount} {multiVehicleChart.unitLabel}</span>}
         >
-          <Line data={totalVehicleChart.data} options={totalVehicleChart.options} />
+          {!vehicleTop6.length ? (
+            <div className="notice" style={{ height: '100%' }}>
+              Aucun véhicule trouvé.
+            </div>
+          ) : (
+            multiVehicleChart.labelsCount ? (
+              <Vehicle6AreaChart labels={multiVehicleChart.labels} series={multiVehicleChart.series} valueSuffix=" Ar" />
+            ) : (
+              <div className="notice" style={{ height: '100%' }}>
+                Aucune donnée sur la période.
+              </div>
+            )
+          )}
         </ChartCard>
 
-        {/* Right column: doughnuts + top table */}
-        <div style={{ display: 'grid', gap: 14 }}>
-          <ChartCard title="Groupe électrogène vs Autres — Montant (Ar)">
-            <Doughnut data={doughnutMontant.data} options={doughnutMontant.options} />
-          </ChartCard>
+        <ChartCard className="dashDonut1" title="Groupe électrogène — Montant (Ar)" height={210}>
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ flex: '0 0 190px', minHeight: 0 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 6 }}>Graphique linéaire</div>
+              <div style={{ fontSize: 13, color: tokens.muted, opacity: 0.95, marginBottom: 8 }}>
+                Évolution du montant du groupe électrogène sur la période.
+              </div>
 
-          <ChartCard title="Groupe électrogène vs Autres — Litres">
-            <Doughnut data={doughnutLiters.data} options={doughnutLiters.options} />
-          </ChartCard>
-
-          <div className="card">
-            <h3 style={{ marginBottom: 10 }}>Top véhicules (montant)</h3>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="table" style={{ minWidth: 520 }}>
-                <thead>
-                  <tr>
-                    <th>Véhicule</th>
-                    <th>Montant</th>
-                    <th>Litres</th>
-                    <th>Repleins</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byVehicle.slice(0, 10).map((r) => (
-                    <tr key={r.plate}>
-                      <td style={{ fontWeight: 900 }}>{r.plate}</td>
-                      <td>{fmtMoneyAr(r.montant_ar)} Ar</td>
-                      <td>{fmtLiters(r.liters)}</td>
-                      <td>{r.refills}</td>
-                    </tr>
-                  ))}
-                  {!byVehicle.length && (
-                    <tr>
-                      <td colSpan={4} style={{ padding: 14, color: '#6b7280' }}>
-                        Aucune donnée
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <div style={{ height: 140 }}>
+                {loadingGenOther ? (
+                  <div className="notice" style={{ height: '100%' }}>Chargement...</div>
+                ) : generatorTimeline.labelsCount ? (
+                  <Line data={generatorLineData} options={miniAreaOptions} />
+                ) : (
+                  <div className="notice" style={{ height: '100%' }}>Aucune donnée sur la période.</div>
+                )}
+              </div>
             </div>
+          </div>
+        </ChartCard>
+
+        <ChartCard className="dashDonut2" title="Autres carburant — Montant (Ar)" height={210}>
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ flex: '0 0 190px', minHeight: 0 }}>
+              <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 6 }}>Graphique linéaire</div>
+              <div style={{ fontSize: 13, color: tokens.muted, opacity: 0.95, marginBottom: 8 }}>
+                Évolution du montant des autres carburants sur la période.
+              </div>
+
+              <div style={{ height: 140 }}>
+                {loadingGenOther ? (
+                  <div className="notice" style={{ height: '100%' }}>Chargement...</div>
+                ) : otherTimeline.labelsCount ? (
+                  <Line data={otherLineData} options={miniAreaOptions} />
+                ) : (
+                  <div className="notice" style={{ height: '100%' }}>Aucune donnée sur la période.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </ChartCard>
+
+        {/* table sur toute la largeur */}
+        <div className="card dashSpanAll">
+          <h3 style={{ marginBottom: 10 }}>Top véhicules (montant)</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th>Véhicule</th>
+                  <th>Montant</th>
+                  <th>Litres</th>
+                  <th>Repleins</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byVehicle.slice(0, 10).map((r) => (
+                  <tr key={r.plate}>
+                    <td style={{ fontWeight: 900 }}>{r.plate}</td>
+                    <td>{fmtMoneyAr(r.montant_ar)} Ar</td>
+                    <td>{fmtLiters(r.liters)}</td>
+                    <td>{r.refills}</td>
+                  </tr>
+                ))}
+                {!byVehicle.length && (
+                  <tr>
+                    <td colSpan={4} style={{ padding: 14, color: '#6b7280' }}>
+                      Aucune donnée
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
 
-     
-
-    
-
-      {/* Responsive quick fix sans toucher styles.css */}
       <style>{`
-        
-        @media (max-width: 900px){
-          .kpiRow3 { grid-template-columns: 200px !important; }
+        /* KPIs responsive (inchangé) */
+        @media (max-width: 980px){
+          .kpiRow3 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
         }
+        @media (max-width: 620px){
+          .kpiRow3 { grid-template-columns: 1fr !important; }
+          .kpiPremium .kpiOpenBtn { width: 100% !important; }
+        }
+        @media (max-width: 520px){
+          .kpiPremium .kpiMiniGrid { grid-template-columns: 1fr !important; }
+          .kpiPremium .kpiValue { font-size: clamp(18px, 5vw, 22px) !important; }
+          .kpiPremium .kpiUnit { font-size: clamp(12px, 3.5vw, 14px) !important; }
+        }
+
+        /* ✅ Dashboard charts = 2 colonnes */
+        .dashCharts3{
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+          align-items: start;
+        }
+        .dashBigChart{ grid-column: 1 / -1; }
+        .dashSpanAll{ grid-column: 1 / -1; }
+
         @media (max-width: 720px){
-          .dashGrid3 { grid-template-columns: 200px !important; }
+          .dashCharts3{ grid-template-columns: 1fr; }
+          .dashBigChart{ grid-column: auto; }
+          .dashSpanAll{ grid-column: auto; }
         }
       `}</style>
     </>
   );
 }
-
-
 
 export default memo(Dashboard);
