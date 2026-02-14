@@ -1,0 +1,356 @@
+/* client/src/pages/Meta.css */
+
+.metaPage{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Tabs */
+.metaTabs{
+  display:flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.metaTab{
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  opacity: .9;
+}
+
+.metaTab.active{
+  border-color: rgba(37,99,235,.30);
+  box-shadow: 0 0 0 4px var(--ring);
+  opacity: 1;
+}
+
+/* KPI */
+.metaKpis{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.metaKpi{
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: var(--shadow-sm);
+  min-width: 160px;
+}
+.metaKpi .kTitle{
+  font-size: 12px;
+  font-weight: 900;
+  opacity: .75;
+}
+.metaKpi .kValue{
+  font-size: 22px;
+  font-weight: 1000;
+  margin-top: 4px;
+}
+
+/* Toolbar */
+.metaToolbar{
+  display:flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.metaToolbar .field{
+  min-width: 200px;
+}
+
+/* =========================
+   TABLE (Lisibilité PRO)
+   ========================= */
+
+.metaPage .tableWrap{
+  border-radius: 16px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Base table */
+.metaPage .table{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Cell paddings + typographie */
+.metaPage .table th,
+.metaPage .table td{
+  padding: 14px 14px;
+  font-size: 14px;
+  line-height: 1.35;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Ligne de séparation */
+.metaPage .table tbody tr td{
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+html[data-theme="light"] .metaPage .table tbody tr td{
+  border-top: 1px solid rgba(15,23,42,.08);
+}
+
+/* Header style (plus lisible) */
+.metaPage .table thead th{
+  font-weight: 1000;
+  letter-spacing: .2px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+}
+html[data-theme="light"] .metaPage .table thead th{
+  border-bottom: 1px solid rgba(15,23,42,.10);
+  background: rgba(37,99,235,.08); /* bande légère bleutée */
+}
+
+/* Header sticky (quand tu scroll) */
+.metaStickyHead thead th{
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(10px);
+}
+
+/* ✅ Zebra striping: alternance de lignes */
+.metaPage .table tbody tr:nth-child(odd){
+  background: rgba(65, 118, 204, 0.41);
+}
+html[data-theme="light"] .metaPage .table tbody tr:nth-child(odd){
+  background: rgba(37, 100, 235, 0.571);
+  
+}
+
+/* Hover: très visible + “suivi de ligne” */
+.metaRowClickable{
+  cursor: pointer;
+  transition: background .12s ease, box-shadow .12s ease;
+}
+
+.metaRowClickable:hover{
+  background: rgba(20, 67, 168, 0.558) !important;
+  box-shadow: inset 4px 0 0 rgba(37,99,235,.55);
+}
+
+html[data-theme="light"] .metaRowClickable:hover{
+  background: rgba(27, 69, 160, 0.688) !important;
+  box-shadow: inset 4px 0 0 rgba(37,99,235,.55);
+}
+
+/* Focus clavier (accessibilité) */
+.metaRowClickable:focus-within{
+  background: rgba(37,99,235,.16) !important;
+  box-shadow: inset 4px 0 0 rgba(37,99,235,.65), 0 0 0 4px rgba(37,99,235,.18);
+}
+
+/* ✅ Colonnes: Actions à droite + Actif centré (avant-dernière colonne) */
+.metaPage .table th:last-child,
+.metaPage .table td:last-child{
+  text-align: right;
+}
+
+.metaPage .table th:nth-last-child(2),
+.metaPage .table td:nth-last-child(2){
+  text-align: center;
+}
+
+/* Actions */
+.metaActions{
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.metaActionBtn{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metaBtnIcon{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(1px);
+}
+
+.metaBtnIconSvg{
+  display: block;
+}
+
+/* Badge (Carburant / ACTIF etc.) */
+.metaChip{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+html[data-theme="light"] .metaChip{
+  border-color: rgba(15,23,42,.12);
+  background: rgba(15,23,42,.04);
+}
+
+/* =========================
+   SWITCH (Actif) — plus visible
+   ========================= */
+
+.metaSwitch{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.metaSwitch input{
+  display: none;
+}
+
+/* 🔥 plus grand + meilleur contraste */
+.metaTrack{
+  width: 52px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.10);
+  position: relative;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+
+html[data-theme="light"] .metaTrack{
+  background: rgba(31, 74, 176, 0.79);
+  box-shadow: inset 0 0 0 1px rgba(15,23,42,.05);
+}
+
+.metaThumb{
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform .15s ease, box-shadow .15s ease;
+  box-shadow: 0 6px 16px rgba(0,0,0,.18);
+}
+
+/* ON */
+.metaSwitch input:checked + .metaTrack{
+  background: rgba(16,185,129,.25);
+  border-color: rgba(16,185,129,.45);
+  box-shadow: 0 0 0 4px rgba(16,185,129,.16);
+}
+
+.metaSwitch input:checked + .metaTrack .metaThumb{
+  transform: translateX(22px);
+  box-shadow: 0 8px 18px rgba(16,185,129,.18);
+}
+
+/* Focus */
+.metaSwitch input:focus-visible + .metaTrack{
+  box-shadow: 0 0 0 4px rgba(37,99,235,.22);
+}
+
+/* Disabled */
+.metaSwitch input:disabled + .metaTrack{
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* Tiny text */
+.metaTiny{
+  font-size: 12px;
+  opacity: .72;
+}
+
+/* Danger hint */
+.metaDangerHint{
+  border: 1px solid rgba(239,68,68,.22);
+  background: rgba(239,68,68,.08);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+/* Bouton “Nouveau …” */
+.metaNewBtn{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Grille modals (si tu l’utilises) */
+.metaFormGrid{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 980px){
+  .metaFormGrid{
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 640px){
+  .metaFormGrid{
+    grid-template-columns: 1fr;
+  }
+}
+
+.metaSpan2{
+  grid-column: span 2;
+}
+
+@media (max-width: 980px){
+  .metaSpan2{
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px){
+  .metaSpan2{
+    grid-column: span 1;
+  }
+}
+
+html[data-theme="light"] .metaPage .table th,
+html[data-theme="light"] .metaPage .table td{
+  color: rgba(41, 42, 15, 0.92); /* texte principal */
+}
+html[data-theme="light"] .metaPage .muted{
+    font-weight: 700;
+    color: rgba(39, 42, 15, 0.875); /* texte “gris” */
+}
+
+/*dark*/
+html[data-theme="dark"] .metaPage .table th,
+html[data-theme="dark"] .metaPage .table td{
+  color: rgba(235, 235, 235, 0.92); /* texte principal */
+}
+html[data-theme="dark"] .metaPage .muted{
+    font-weight: 700;
+    color: rgba(238, 238, 238, 0.773); /* texte “gris” */
+}
