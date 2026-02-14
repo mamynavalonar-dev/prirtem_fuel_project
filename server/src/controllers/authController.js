@@ -8,13 +8,17 @@ const { sendResetEmail } = require('../utils/mailer');
 const ROLES = ['DEMANDEUR', 'LOGISTIQUE', 'RAF', 'ADMIN'];
 
 function signToken(user) {
+  // tv = token_version (permet révocation sessions)
+  const tv = Number.isFinite(user.token_version) ? user.token_version : 0;
+
   return jwt.sign(
     {
       id: user.id,
       username: user.username,
       role: user.role,
       first_name: user.first_name,
-      last_name: user.last_name
+      last_name: user.last_name,
+      tv
     },
     process.env.JWT_SECRET,
     { expiresIn: '12h' }
@@ -53,19 +57,31 @@ async function register(req, res) {
     throw e;
   }
 
-  const { rows } = await pool.query('SELECT id, first_name, last_name, username, email, role FROM users WHERE id=$1', [id]);
+  const { rows } = await pool.query(
+    'SELECT id, first_name, last_name, username, email, role, token_version, permissions FROM users WHERE id=$1',
+    [id]
+  );
   const user = rows[0];
   const token = signToken(user);
-  return res.json({ token, user });
+
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      permissions: user.permissions || []
+    }
+  });
 }
 
 /**
- * ✅ Login sans sélection du rôle côté client :
- * - On identifie l'utilisateur par username
- * - On vérifie le mot de passe
- * - On récupère le rôle depuis la DB
- *
- * NB: "role" est optionnel uniquement pour compatibilité (anciens clients), mais on l'ignore.
+ * ✅ Login:
+ * - refuse si is_active=false ou is_blocked=true
+ * - met à jour last_login_at
  */
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -79,17 +95,16 @@ async function login(req, res) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
   }
 
-  // Trim to avoid common UX issues (copy/paste spaces)
   const username = String(parsed.data.username || '').trim();
   const password = String(parsed.data.password || '');
 
   const { rows } = await pool.query(
-    'SELECT id, first_name, last_name, username, email, role, password_hash, is_active FROM users WHERE username=$1',
+    'SELECT id, first_name, last_name, username, email, role, password_hash, is_active, is_blocked, token_version, permissions FROM users WHERE username=$1',
     [username]
   );
 
   const user = rows[0];
-  if (!user || !user.is_active) {
+  if (!user || !user.is_active || user.is_blocked) {
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
 
@@ -98,17 +113,23 @@ async function login(req, res) {
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
 
-  const token = signToken(user);
-  const safeUser = {
-    id: user.id,
-    first_name: user.first_name,
-    last_name: user.last_name,
-    username: user.username,
-    email: user.email,
-    role: user.role
-  };
+  // Update last login
+  await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
 
-  return res.json({ token, user: safeUser });
+  const token = signToken(user);
+
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      permissions: user.permissions || []
+    }
+  });
 }
 
 const forgotSchema = z.object({ email: z.string().email() });
@@ -120,16 +141,18 @@ async function forgotPassword(req, res) {
   }
 
   const { email } = parsed.data;
-  const { rows } = await pool.query('SELECT id, email FROM users WHERE email=$1 AND is_active=true', [email]);
+  const { rows } = await pool.query(
+    'SELECT id, email FROM users WHERE email=$1 AND is_active=true AND is_blocked=false',
+    [email]
+  );
   const user = rows[0];
-  // Always return OK to avoid user enumeration
   if (!user) {
     return res.json({ ok: true });
   }
 
   const tokenPlain = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   const tokenHash = await bcrypt.hash(tokenPlain, 10);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 min
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
 
   await pool.query(
     `INSERT INTO password_resets (id, user_id, token_hash, expires_at)
@@ -138,7 +161,6 @@ async function forgotPassword(req, res) {
   );
 
   await sendResetEmail(user.email, tokenPlain);
-
   return res.json({ ok: true });
 }
 
@@ -163,7 +185,6 @@ async function resetPassword(req, res) {
      LIMIT 20`
   );
 
-  // match token against recent hashes (avoid storing plain token)
   let found = null;
   for (const r of rows) {
     const ok = await bcrypt.compare(token, r.token_hash);
@@ -173,12 +194,8 @@ async function resetPassword(req, res) {
     }
   }
 
-  if (!found) {
-    return res.status(400).json({ error: 'INVALID_TOKEN' });
-  }
-  if (new Date(found.expires_at).getTime() < Date.now()) {
-    return res.status(400).json({ error: 'TOKEN_EXPIRED' });
-  }
+  if (!found) return res.status(400).json({ error: 'INVALID_TOKEN' });
+  if (new Date(found.expires_at).getTime() < Date.now()) return res.status(400).json({ error: 'TOKEN_EXPIRED' });
 
   const password_hash = await bcrypt.hash(password, 10);
 
@@ -190,7 +207,7 @@ async function resetPassword(req, res) {
 
 async function me(req, res) {
   const { rows } = await pool.query(
-    'SELECT id, first_name, last_name, username, email, role FROM users WHERE id=$1',
+    'SELECT id, first_name, last_name, username, email, role, permissions FROM users WHERE id=$1',
     [req.user.id]
   );
   return res.json({ user: rows[0] });

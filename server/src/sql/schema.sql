@@ -387,4 +387,26 @@ CREATE TABLE car_logbook_fuel_supplies (
 
 CREATE INDEX idx_cls_logbook ON car_logbook_fuel_supplies(logbook_id, supply_date);
 
+-- Users: permissions + statut + session revocation + last login
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS permissions TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Admin audit log
+CREATE TABLE IF NOT EXISTS admin_audit_logs (
+  id UUID PRIMARY KEY,
+  actor_id UUID NOT NULL,
+  action TEXT NOT NULL,
+  target_user_id UUID NULL,
+  meta JSONB NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS admin_audit_logs_actor_idx ON admin_audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS admin_audit_logs_target_idx ON admin_audit_logs(target_user_id);
+
+
+
 COMMIT;
