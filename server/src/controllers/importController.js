@@ -50,6 +50,7 @@ async function uploadAndImport(req, res) {
     );
 
     try {
+      // ✅ IMPORTANT : TON detectExcelType retourne { type, workbook }
       const { type, workbook } = detectExcelType(f.buffer, f.originalname);
       let inserted = 0;
 
@@ -177,17 +178,38 @@ async function uploadAndImport(req, res) {
 }
 
 async function listBatches(req, res) {
-  if (!['ADMIN', 'LOGISTIQUE', 'RAF'].includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
+  if (!['ADMIN', 'LOGISTIQUE', 'RAF'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+
   const { rows } = await pool.query(
-    `SELECT ib.id, ib.created_at, u.username AS created_by, COUNT(if2.id) AS files,
-            COALESCE(SUM(if2.inserted_rows),0) AS inserted_rows
+    `SELECT
+        ib.id,
+        ib.created_at,
+
+        u.username  AS created_by,
+        u.first_name AS created_first_name,
+        u.last_name  AS created_last_name,
+        u.role       AS created_role,
+
+        COUNT(if2.id) AS files,
+        COALESCE(SUM(if2.inserted_rows), 0) AS inserted_rows,
+        MIN(if2.original_name) AS first_file,
+
+        CASE
+          WHEN SUM(CASE WHEN if2.status = 'ERROR' THEN 1 ELSE 0 END) > 0 THEN 'ERROR'
+          WHEN SUM(CASE WHEN if2.status IN ('PENDING','PROCESSING') THEN 1 ELSE 0 END) > 0 THEN 'PROCESSING'
+          WHEN COUNT(if2.id) = 0 THEN 'PENDING'
+          ELSE 'DONE'
+        END AS status
      FROM import_batches ib
-     JOIN users u ON u.id=ib.created_by
-     LEFT JOIN import_files if2 ON if2.batch_id=ib.id
-     GROUP BY ib.id, ib.created_at, u.username
+     JOIN users u ON u.id = ib.created_by
+     LEFT JOIN import_files if2 ON if2.batch_id = ib.id
+     GROUP BY ib.id, ib.created_at, u.username, u.first_name, u.last_name, u.role
      ORDER BY ib.created_at DESC
-     LIMIT 100`
+     LIMIT 200`
   );
+
   res.json({ batches: rows });
 }
 
