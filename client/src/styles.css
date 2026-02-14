@@ -69,6 +69,9 @@ html[data-theme="dark"]{
 
   --icon-bg: rgba(255,255,255,.06);
   --icon-border: rgba(255,255,255,.12);
+
+  color-scheme: dark;
+
 }
 
 *{ box-sizing: border-box; }
@@ -837,4 +840,34 @@ html[data-theme="dark"] :is(
   .dashCharts{ grid-template-columns: 1fr; }
   .dashCharts .span2,
   .dashCharts .span3{ grid-column: span 1; }
+}
+
+/* ===================== FIX SELECT DROPDOWN (DARK) ===================== */
+/* Rend les options lisibles dans le menu déroulant (hover / disabled) */
+html[data-theme="dark"] select{
+  color-scheme: dark; /* force le rendu natif en thème sombre (Chrome/Edge/Firefox récents) */
+}
+
+/* Options du dropdown */
+html[data-theme="dark"] select option{
+  background: #0b1220;               /* même base que --surface dark */
+  color: rgba(229,231,235,.92);      /* texte lisible */
+}
+
+/* Option désactivée / placeholder (ex: "(Tous)") */
+html[data-theme="dark"] select option:disabled{
+  color: rgba(229,231,235,.55);      /* “gris” mais lisible */
+}
+
+/* Option sélectionnée */
+html[data-theme="dark"] select option:checked{
+  background: #1f2937;
+  color: #ffffff;
+}
+
+/* Hover / focus (selon navigateur : fonctionne surtout sur Chromium) */
+html[data-theme="dark"] select option:hover,
+html[data-theme="dark"] select option:focus{
+  background: #2563eb;               /* bleu accent */
+  color: #ffffff;                    /* IMPORTANT: texte blanc lisible */
 }

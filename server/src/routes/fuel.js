@@ -16,7 +16,7 @@ router.post('/vehicle', asyncHandler(ctrl.manualAddVehicle));
 router.post('/generator', asyncHandler(ctrl.manualAddGenerator));
 router.post('/other', asyncHandler(ctrl.manualAddOther));
 
-// ========== CRUD: UPDATE & SOFT DELETE (NOUVEAUX) ==========
+// ========== CRUD: UPDATE & SOFT DELETE ==========
 router.put('/vehicle/:id', asyncHandler(ctrl.updateVehicleFuel));
 router.delete('/vehicle/:id', asyncHandler(ctrl.softDeleteVehicleFuel));
 
@@ -27,7 +27,15 @@ router.put('/other/:id', asyncHandler(ctrl.updateOtherFuel));
 router.delete('/other/:id', asyncHandler(ctrl.softDeleteOtherFuel));
 
 // Exports (LOGISTIQUE / ADMIN)
+// ✅ Route actuelle (OK)
 router.get('/export/:type', asyncHandler(ctrl.exportCsv));
+
+// ✅ COMPAT: accepte aussi /export?type=vehicle (ton Fuel.jsx actuel)
+router.get('/export', asyncHandler((req, res, next) => {
+  // ctrl.exportCsv lit normalement req.params.type, donc on le “mappe”
+  req.params.type = req.query.type;
+  return ctrl.exportCsv(req, res, next);
+}));
 
 // Reports & KPIs
 router.get('/report/summary', asyncHandler(ctrl.reportSummary));
