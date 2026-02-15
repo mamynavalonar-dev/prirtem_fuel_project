@@ -1,0 +1,12 @@
+Dans server/src/controllers/carRequestsController.js (ou une requête SQL similaire),
+si tu as un SELECT qui fait:
+
+  LEFT JOIN drivers d ON d.id = cr.driver_id
+  ... d.name AS driver_name ...
+
+=> remplace par:
+
+  LEFT JOIN drivers d ON d.id = cr.driver_id
+  ... d.full_name AS driver_name ...
+
+Car ta table "drivers" (schema.sql) utilise la colonne "full_name".

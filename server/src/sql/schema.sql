@@ -12,10 +12,10 @@ BEGIN
     CREATE TYPE user_role AS ENUM ('DEMANDEUR', 'LOGISTIQUE', 'RAF', 'ADMIN');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fuel_request_status') THEN
-    CREATE TYPE fuel_request_status AS ENUM ('DRAFT','SUBMITTED','VERIFIED','APPROVED','REJECTED');
+    CREATE TYPE fuel_request_status AS ENUM ('DRAFT','SUBMITTED','VERIFIED','APPROVED','REJECTED','CANCELLED');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'car_request_status') THEN
-    CREATE TYPE car_request_status AS ENUM ('SUBMITTED','LOGISTICS_APPROVED','RAF_APPROVED','REJECTED');
+    CREATE TYPE car_request_status AS ENUM ('SUBMITTED','LOGISTICS_APPROVED','RAF_APPROVED','REJECTED','CANCELLED');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'logbook_status') THEN
     CREATE TYPE logbook_status AS ENUM ('DRAFT','SUBMITTED','LOCKED');
@@ -229,6 +229,7 @@ CREATE TABLE fuel_requests (
   amount_estimated_ar INTEGER NOT NULL,
   amount_estimated_words TEXT NOT NULL,
   request_date DATE NOT NULL,
+  end_date DATE NOT NULL,
 
   status fuel_request_status NOT NULL DEFAULT 'DRAFT',
 
@@ -245,11 +246,16 @@ CREATE TABLE fuel_requests (
   rejected_by UUID NULL REFERENCES users(id),
   rejected_at TIMESTAMPTZ NULL,
   reject_reason TEXT NULL,
+  cancelled_by UUID NULL REFERENCES users(id),
+  cancelled_at TIMESTAMPTZ NULL,
+  cancel_reason TEXT NULL,
 
   deleted_at TIMESTAMPTZ NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_fuel_requests_end_date CHECK (end_date >= request_date)
 );
 
 CREATE INDEX idx_fr_status ON fuel_requests(status);
@@ -267,6 +273,7 @@ CREATE TABLE car_requests (
   request_no TEXT NOT NULL UNIQUE,
 
   proposed_date DATE NOT NULL,
+  end_date DATE NOT NULL,
   objet TEXT NOT NULL,
   itinerary TEXT NOT NULL,
   people TEXT NOT NULL,
@@ -277,11 +284,9 @@ CREATE TABLE car_requests (
   vehicle_hint TEXT NULL,
   driver_hint TEXT NULL,
 
-  -- Optional assignments done by Logistique
   vehicle_id UUID NULL REFERENCES vehicles(id),
   driver_id UUID NULL REFERENCES drivers(id),
 
-  -- Auto filled when RAF validates (Visa RAF)
   authorization_date DATE NULL,
   authorization_time TIME NULL,
 
@@ -298,11 +303,16 @@ CREATE TABLE car_requests (
   rejected_by UUID NULL REFERENCES users(id),
   rejected_at TIMESTAMPTZ NULL,
   reject_reason TEXT NULL,
+  cancelled_by UUID NULL REFERENCES users(id),
+  cancelled_at TIMESTAMPTZ NULL,
+  cancel_reason TEXT NULL,
 
   deleted_at TIMESTAMPTZ NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT chk_car_requests_end_date CHECK (end_date >= proposed_date)
 );
 
 CREATE INDEX idx_cr_status ON car_requests(status);
@@ -321,6 +331,9 @@ CREATE TABLE car_logbooks (
   period_end DATE NOT NULL,
   objet TEXT NULL,
 
+  -- ✅ NOUVEAU: type du journal (le titre change à l'impression)
+  logbook_type TEXT NOT NULL DEFAULT 'SERVICE' CHECK (logbook_type IN ('SERVICE','MISSION')),
+
   service_km INTEGER NOT NULL DEFAULT 0,
   mission_km INTEGER NOT NULL DEFAULT 0,
 
@@ -334,11 +347,15 @@ CREATE TABLE car_logbooks (
   locked_by UUID NULL REFERENCES users(id),
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- ✅ Cohérence période
+  CONSTRAINT chk_car_logbooks_period CHECK (period_end >= period_start)
 );
 
 CREATE INDEX idx_cl_vehicle_period ON car_logbooks(vehicle_id, period_start, period_end);
 CREATE INDEX idx_cl_status ON car_logbooks(status);
+CREATE INDEX idx_cl_type ON car_logbooks(logbook_type);
 
 CREATE TRIGGER trig_car_logbooks_updated
 BEFORE UPDATE ON car_logbooks
@@ -406,7 +423,5 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
 
 CREATE INDEX IF NOT EXISTS admin_audit_logs_actor_idx ON admin_audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS admin_audit_logs_target_idx ON admin_audit_logs(target_user_id);
-
-
 
 COMMIT;

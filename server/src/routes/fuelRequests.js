@@ -14,8 +14,11 @@ router.patch('/:id/submit', asyncHandler(ctrl.submit));
 router.patch('/:id/verify', asyncHandler(ctrl.verify));
 router.patch('/:id/approve', asyncHandler(ctrl.approve));
 router.patch('/:id/reject', asyncHandler(ctrl.reject));
+router.post('/:id/cancel', asyncHandler(ctrl.cancel));
 
 // Corbeille (soft delete)
 router.delete('/:id', asyncHandler(ctrl.softDelete));
 
 module.exports = router;
+
+

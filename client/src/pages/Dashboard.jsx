@@ -971,7 +971,7 @@ function Dashboard() {
           refills={safeSummary.vehicle.refills}
           pct={pctVehicle}
           accent="emerald"
-          onOpen={() => (window.location.href = '/app/fuel')}
+          onOpen={() => (window.location.href = '/app/fuel?tab=vehicle')}
         />
 
         <PremiumKpiCard
@@ -982,7 +982,7 @@ function Dashboard() {
           refills={null}
           pct={pctGenerator}
           accent="orange"
-          onOpen={() => (window.location.href = '/app/fuel')}
+          onOpen={() => (window.location.href = '/app/fuel?tab=generator')}
         />
 
         <PremiumKpiCard
@@ -993,7 +993,7 @@ function Dashboard() {
           refills={null}
           pct={pctOther}
           accent="violet"
-          onOpen={() => (window.location.href = '/app/fuel')}
+          onOpen={() => (window.location.href = '/app/fuel?tab=other')}
         />
       </div>
 

@@ -61,6 +61,15 @@ export default function PrintFuelRequest() {
           <span>OBJET : </span>
           <div style={lineStyle}>{req.objet}</div>
         </div>
+        <div style={lineGroupStyle}>
+          <span>PÉRIODE : </span>
+          <div style={lineStyle}>
+            {String(req.end_date || req.request_date || '').slice(0, 10) !== String(req.request_date || '').slice(0, 10)
+              ? `${String(req.request_date || '').slice(0, 10)} → ${String(req.end_date || '').slice(0, 10)}`
+              : String(req.request_date || '').slice(0, 10)}
+          </div>
+        </div>
+
 
         <div style={{ ...lineGroupStyle, marginTop: 25 }}>
           <span>Montant prévisionnel (en chiffre) : </span>
@@ -107,3 +116,4 @@ const boxStyle = { width: '20px', height: '20px', border: '1px solid black', dis
 const lineGroupStyle = { display: 'flex', alignItems: 'baseline', fontSize: '14px' };
 const lineStyle = { flex: 1, borderBottom: '1px solid black', paddingLeft: '10px', height: '24px' };
 const cellStyle = { border: '1px solid black', padding: '5px', textAlign: 'center', width: '33%' };
+

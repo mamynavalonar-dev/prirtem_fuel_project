@@ -44,12 +44,8 @@ async function runMigrations() {
     );
   `);
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_dva_vehicle ON driver_vehicle_assignments(vehicle_id);
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_dva_driver ON driver_vehicle_assignments(driver_id);
-  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dva_vehicle ON driver_vehicle_assignments(vehicle_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_dva_driver ON driver_vehicle_assignments(driver_id);`);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_dva_active_vehicle ON driver_vehicle_assignments(vehicle_id)
     WHERE end_at IS NULL AND deleted_at IS NULL;
@@ -59,7 +55,6 @@ async function runMigrations() {
     WHERE end_at IS NULL AND deleted_at IS NULL;
   `);
 
-  // Un seul actif à la fois par véhicule / par chauffeur (historique OK)
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_dva_one_active_vehicle
     ON driver_vehicle_assignments(vehicle_id)
@@ -70,6 +65,140 @@ async function runMigrations() {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_dva_one_active_driver
     ON driver_vehicle_assignments(driver_id)
     WHERE end_at IS NULL AND deleted_at IS NULL;
+  `);
+
+  // ====== CAR REQUESTS: end_date + annulation + status CANCELLED ======
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'car_request_status' AND e.enumlabel = 'CANCELLED'
+      ) THEN
+        ALTER TYPE car_request_status ADD VALUE 'CANCELLED';
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    ALTER TABLE car_requests
+      ADD COLUMN IF NOT EXISTS end_date DATE NULL,
+      ADD COLUMN IF NOT EXISTS cancelled_by UUID NULL REFERENCES users(id),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS cancel_reason TEXT NULL;
+  `);
+
+  await pool.query(`
+    UPDATE car_requests
+    SET end_date = proposed_date
+    WHERE end_date IS NULL;
+  `);
+
+  await pool.query(`ALTER TABLE car_requests ALTER COLUMN end_date SET NOT NULL;`);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_type = 'CHECK'
+          AND table_name = 'car_requests'
+          AND constraint_name = 'chk_car_requests_end_date'
+      ) THEN
+        ALTER TABLE car_requests
+          ADD CONSTRAINT chk_car_requests_end_date CHECK (end_date >= proposed_date);
+      END IF;
+    END $$;
+  `);
+
+  // ====== FUEL REQUESTS: end_date + annulation + status CANCELLED ======
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'fuel_request_status' AND e.enumlabel = 'CANCELLED'
+      ) THEN
+        ALTER TYPE fuel_request_status ADD VALUE 'CANCELLED';
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    ALTER TABLE fuel_requests
+      ADD COLUMN IF NOT EXISTS end_date DATE NULL,
+      ADD COLUMN IF NOT EXISTS cancelled_by UUID NULL REFERENCES users(id),
+      ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS cancel_reason TEXT NULL;
+  `);
+
+  await pool.query(`
+    UPDATE fuel_requests
+    SET end_date = request_date
+    WHERE end_date IS NULL;
+  `);
+
+  await pool.query(`ALTER TABLE fuel_requests ALTER COLUMN end_date SET NOT NULL;`);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_type = 'CHECK'
+          AND table_name = 'fuel_requests'
+          AND constraint_name = 'chk_fuel_requests_end_date'
+      ) THEN
+        ALTER TABLE fuel_requests
+          ADD CONSTRAINT chk_fuel_requests_end_date CHECK (end_date >= request_date);
+      END IF;
+    END $$;
+  `);
+
+  // =====================================================================
+  // ✅ LOGBOOKS: logbook_type + deleted_at (corbeille)
+  // =====================================================================
+  await pool.query(`
+    ALTER TABLE car_logbooks
+      ADD COLUMN IF NOT EXISTS logbook_type TEXT NULL,
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
+  `);
+
+  await pool.query(`
+    UPDATE car_logbooks
+    SET logbook_type = 'SERVICE'
+    WHERE logbook_type IS NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE car_logbooks
+      ALTER COLUMN logbook_type SET NOT NULL;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_type = 'CHECK'
+          AND table_name = 'car_logbooks'
+          AND constraint_name = 'chk_car_logbooks_type'
+      ) THEN
+        ALTER TABLE car_logbooks
+          ADD CONSTRAINT chk_car_logbooks_type CHECK (logbook_type IN ('SERVICE','MISSION'));
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_car_logbooks_deleted_at ON car_logbooks(deleted_at);
   `);
 }
 

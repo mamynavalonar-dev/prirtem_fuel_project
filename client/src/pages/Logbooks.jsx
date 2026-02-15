@@ -1,22 +1,18 @@
-// client/src/pages/Logbooks.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import Modal from '../components/Modal.jsx';
-import { useAuth } from '../auth/AuthContext.jsx';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../utils/api.js';
+import { useAuth } from '../auth/AuthContext.jsx';
+import Modal from '../components/Modal.jsx';
+import './Logbooks.css';
 
-function fmtDate(d) {
-  if (!d) return '';
-  const s = String(d);
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+function toYMD(v) {
+  if (!v) return '';
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  const d = new Date(v);
+  if (!Number.isNaN(d.getTime())) return d.toLocaleDateString('fr-CA');
   return s;
-}
-
-function toYmd(s) {
-  if (!s) return null;
-  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
 
 export default function Logbooks() {
@@ -24,166 +20,176 @@ export default function Logbooks() {
   const role = user?.role;
   const navigate = useNavigate();
 
-  const [vehicles, setVehicles] = useState([]);
-  const [logbooks, setLogbooks] = useState([]);
+  const canManage = ['ADMIN', 'LOGISTIQUE'].includes(role);
 
-  const [form, setForm] = useState({
+  const [vehicles, setVehicles] = useState([]);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  // filters
+  const [fVehicle, setFVehicle] = useState('');
+  const [fStatus, setFStatus] = useState('');
+  const [fType, setFType] = useState('');
+  const [fFrom, setFFrom] = useState('');
+  const [fTo, setFTo] = useState('');
+  const [q, setQ] = useState('');
+
+  // view modal
+  const [view, setView] = useState(null); // {loading, data}
+
+  // create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({
     vehicle_id: '',
+    logbook_type: 'SERVICE',
     period_start: '',
     period_end: '',
     objet: ''
   });
 
-  const [filter, setFilter] = useState({
-    vehicle_id: '',
-    status: '',
-    date_from: '',
-    date_to: '',
-    q: ''
-  });
+  const columns = useMemo(() => {
+    return ['Véhicule', 'Période', 'Type', 'Objet', 'Km', 'Statut', 'Actions'];
+  }, []);
 
-  const [error, setError] = useState(null);
-  const [creating, setCreating] = useState(false);
-  const [view, setView] = useState(null); // {loading, book, trips, supplies}
+  async function loadVehicles() {
+    try {
+      const d = await apiFetch('/api/vehicles', { token });
+      setVehicles(d.vehicles || []);
+    } catch {
+      // silence
+    }
+  }
 
   async function load() {
-    setError(null);
-    const v = await apiFetch('/api/meta/vehicles', { token });
-    setVehicles(v.vehicles || []);
-    const lb = await apiFetch('/api/logbooks', { token });
-    setLogbooks(lb.logbooks || []);
+    setLoading(true);
+    setErr(null);
+    try {
+      const params = new URLSearchParams();
+      if (fVehicle) params.set('vehicle_id', fVehicle);
+      if (fStatus) params.set('status', fStatus);
+      if (fType) params.set('type', fType);
+      if (fFrom) params.set('from', fFrom);
+      if (fTo) params.set('to', fTo);
+      if (q) params.set('q', q);
+
+      const d = await apiFetch(`/api/logbooks?${params.toString()}`, { token });
+      setItems(d.items || []);
+    } catch (e) {
+      setErr(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
-    if (!token) return;
-    load().catch((e) => setError(e.message || String(e)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+    loadVehicles();
+  }, []);
 
-  async function openView(id) {
-    setView({ loading: true, book: null, trips: [], supplies: [] });
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fVehicle, fStatus, fType, fFrom, fTo, q]);
+
+  const resetFilters = () => {
+    setFVehicle('');
+    setFStatus('');
+    setFType('');
+    setFFrom('');
+    setFTo('');
+    setQ('');
+  };
+
+  const openView = async (id) => {
+    setView({ loading: true, data: null });
     try {
       const d = await apiFetch(`/api/logbooks/${id}`, { token });
-      setView({
-        loading: false,
-        book: d.logbook,
-        trips: d.trips || [],
-        supplies: d.supplies || []
-      });
+      setView({ loading: false, data: d.item });
     } catch (e) {
       setView(null);
-      alert(e.message || String(e));
+      alert(String(e.message || e));
     }
-  }
+  };
 
-  async function create(e) {
-    e.preventDefault();
-    if (!['LOGISTIQUE', 'ADMIN'].includes(role)) return;
+  const openCreate = () => {
+    setCreateForm({
+      vehicle_id: '',
+      logbook_type: 'SERVICE',
+      period_start: '',
+      period_end: '',
+      objet: ''
+    });
+    setShowCreate(true);
+  };
 
-    if (!form.vehicle_id || !form.period_start || !form.period_end) {
-      setError('Veuillez remplir Véhicule, Du, Au.');
-      return;
-    }
-    if (form.period_end < form.period_start) {
-      setError('La date de fin doit être ≥ à la date de début.');
-      return;
-    }
-
+  const create = async () => {
     setCreating(true);
-    setError(null);
-
     try {
-      const created = await apiFetch('/api/logbooks', {
-        token,
-        method: 'POST',
-        body: { ...form, objet: form.objet || null }
-      });
-
-      // ✅ “Créer et ouvrir” : on ouvre directement le journal créé
-      const newId = created?.logbook?.id;
-      setForm({ vehicle_id: '', period_start: '', period_end: '', objet: '' });
+      const body = {
+        ...createForm,
+        period_start: createForm.period_start,
+        period_end: createForm.period_end
+      };
+      await apiFetch('/api/logbooks', { method: 'POST', token, body });
+      setShowCreate(false);
       await load();
-
-      if (newId) navigate(`/app/logbooks/${newId}`);
-    } catch (e2) {
-      setError(e2.message || String(e2));
+    } catch (e) {
+      alert(String(e.message || e));
     } finally {
       setCreating(false);
     }
-  }
+  };
 
-  const vehicleMap = useMemo(() => {
-    const m = new Map();
-    vehicles.forEach((v) => m.set(String(v.id), v));
-    return m;
-  }, [vehicles]);
+  const softDelete = async (id) => {
+    const ok = confirm('Déplacer ce journal dans la corbeille ?');
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/logbooks/${id}`, { method: 'DELETE', token });
+      await load();
+      alert('✅ Déplacé dans la corbeille');
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  };
 
-  const filtered = useMemo(() => {
-    const q = filter.q.trim().toLowerCase();
-    const fVeh = filter.vehicle_id ? String(filter.vehicle_id) : '';
-    const fStatus = filter.status || '';
-    const fFrom = filter.date_from ? toYmd(filter.date_from) : null;
-    const fTo = filter.date_to ? toYmd(filter.date_to) : null;
+  const statusBadgeClass = (s) => {
+    if (s === 'LOCKED') return 'badge-ok';
+    if (s === 'SUBMITTED') return '';
+    return '';
+  };
 
-    return (logbooks || []).filter((lb) => {
-      if (fVeh) {
-        if (lb.vehicle_id != null) {
-          if (String(lb.vehicle_id) !== fVeh) return false;
-        } else {
-          const v = vehicleMap.get(fVeh);
-          if (v?.plate && String(lb.plate) !== String(v.plate)) return false;
-        }
-      }
-
-      if (fStatus && String(lb.status) !== fStatus) return false;
-
-      const ps = toYmd(lb.period_start) || '';
-      const pe = toYmd(lb.period_end) || '';
-
-      if (fFrom && pe && pe < fFrom) return false;
-      if (fTo && ps && ps > fTo) return false;
-
-      if (q) {
-        const hay = `${lb.plate || ''} ${lb.objet || ''} ${lb.status || ''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [logbooks, filter, vehicleMap]);
-
-  function badgeClass(status) {
-    if (status === 'LOCKED') return 'badge-ok';
-    if (status === 'SUBMITTED') return 'badge-info';
-    if (status === 'REJECTED') return 'badge-bad';
-    return 'badge-warn'; // DRAFT
-  }
-
-  function resetFilters() {
-    setFilter({ vehicle_id: '', status: '', date_from: '', date_to: '', q: '' });
-  }
+  const typeChipClass = (t) => (t === 'MISSION' ? 'chip chip-mission' : 'chip chip-service');
 
   return (
-    <div className="grid2">
-      {/* LISTE */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
-          <h2 style={{ margin: 0 }}>Journaux de bord voiture</h2>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {filtered.length} / {logbooks.length}
+    <div>
+      <h1 style={{ marginTop: 0 }}>Journal de bord</h1>
+
+      <div className="card logbooksCard">
+        <div className="logbooksHeader">
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 20 }}>Journaux de bord voiture</div>
+          </div>
+
+          <div className="logbooksHeaderRight">
+            <div className="muted" style={{ fontWeight: 700 }}>
+              {items.length} / {items.length}
+            </div>
+
+            {canManage && (
+              <button className="btn btn-outline" onClick={openCreate}>
+                <ion-icon name="add-circle-outline" style={{ marginRight: 8, fontSize: 18 }} />
+                Créer un journal
+              </button>
+            )}
           </div>
         </div>
 
-        {error && <div className="alert">{error}</div>}
-
-        {/* FILTRES */}
-        <div className="card" style={{ marginTop: 12, padding: 12, background: '#fafafa' }}>
-          <div className="row2">
-            <label>
-              Véhicule
-              <select
-                value={filter.vehicle_id}
-                onChange={(e) => setFilter({ ...filter, vehicle_id: e.target.value })}
-              >
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="row" style={{ gap: 12 }}>
+            <div className="field" style={{ flex: 1, minWidth: 220 }}>
+              <div className="label">Véhicule</div>
+              <select className="input" value={fVehicle} onChange={(e) => setFVehicle(e.target.value)}>
                 <option value="">Tous</option>
                 {vehicles.map((v) => (
                   <option key={v.id} value={v.id}>
@@ -191,105 +197,144 @@ export default function Logbooks() {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
-            <label>
-              Statut
-              <select value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+            <div className="field" style={{ flex: 1, minWidth: 220 }}>
+              <div className="label">Statut</div>
+              <select className="input" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
                 <option value="">Tous</option>
                 <option value="DRAFT">DRAFT</option>
                 <option value="SUBMITTED">SUBMITTED</option>
                 <option value="LOCKED">LOCKED</option>
-                <option value="REJECTED">REJECTED</option>
               </select>
-            </label>
+            </div>
+
+            <div className="field" style={{ flex: 1, minWidth: 220 }}>
+              <div className="label">Type</div>
+              <select className="input" value={fType} onChange={(e) => setFType(e.target.value)}>
+                <option value="">Tous</option>
+                <option value="SERVICE">SERVICE</option>
+                <option value="MISSION">MISSION</option>
+              </select>
+            </div>
           </div>
 
-          <div className="row2" style={{ marginTop: 10 }}>
-            <label>
-              Du
-              <input
-                type="date"
-                value={filter.date_from}
-                onChange={(e) => setFilter({ ...filter, date_from: e.target.value })}
-              />
-            </label>
-            <label>
-              Au
-              <input
-                type="date"
-                value={filter.date_to}
-                onChange={(e) => setFilter({ ...filter, date_to: e.target.value })}
-              />
-            </label>
-          </div>
+          <div className="row" style={{ gap: 12, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 220 }}>
+              <div className="label">Du</div>
+              <input className="input" type="date" value={fFrom} onChange={(e) => setFFrom(e.target.value)} />
+            </div>
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 10, alignItems: 'flex-end' }}>
-            <label style={{ flex: 1 }}>
-              Recherche
-              <input
-                value={filter.q}
-                onChange={(e) => setFilter({ ...filter, q: e.target.value })}
-                placeholder="Immatriculation, objet, statut..."
-              />
-            </label>
-            <button className="btn btn-outline" type="button" onClick={resetFilters}>
-              Reset
-            </button>
+            <div className="field" style={{ flex: 1, minWidth: 220 }}>
+              <div className="label">Au</div>
+              <input className="input" type="date" value={fTo} onChange={(e) => setFTo(e.target.value)} />
+            </div>
+
+            <div className="field" style={{ flex: 2, minWidth: 280 }}>
+              <div className="label">Recherche</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <input
+                  className="input"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Immatriculation, objet, statut, type..."
+                />
+                <button className="btn btn-outline logbooksResetBtn" onClick={resetFilters} title="Réinitialiser les filtres">
+                  <ion-icon name="refresh-outline" style={{ fontSize: 18 }} />
+                  <span>Réinitialiser</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* TABLE */}
-        <div style={{ overflowX: 'auto', marginTop: 12 }}>
-          <table className="table">
+        {err && <div className="muted" style={{ color: '#b91c1c', marginTop: 10 }}>{err}</div>}
+
+        <div style={{ overflow: 'auto', marginTop: 14 }}>
+          {/* ✅ zebra + lisibilité light */}
+          <table className="table table-zebra logbooksTable">
             <thead>
               <tr>
-                <th>Véhicule</th>
-                <th>Période</th>
-                <th>Objet</th>
-                <th>Km</th>
-                <th>Statut</th>
-                <th style={{ width: 320 }}></th>
+                {columns.map((c) => (
+                  <th key={c}>{c}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((lb) => (
-                <tr key={lb.id}>
-                  <td>
-                    <b>{lb.plate}</b>
-                  </td>
-                  <td>
-                    {fmtDate(lb.period_start)} → {fmtDate(lb.period_end)}
-                  </td>
-                  <td>{lb.objet ? String(lb.objet).slice(0, 60) : <span className="muted">—</span>}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <span className="badge badge-info" style={{ marginRight: 6 }}>
-                      S: {lb.service_km ?? 0}
-                    </span>
-                    <span className="badge badge-warn">M: {lb.mission_km ?? 0}</span>
-                  </td>
-                  <td>
-                    <span className={`badge ${badgeClass(lb.status)}`}>{lb.status}</span>
-                  </td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => openView(lb.id)}>
-                      Voir
-                    </button>
-                    <span style={{ display: 'inline-block', width: 8 }} />
-                    <Link className="btn btn-secondary btn-sm" to={`/app/logbooks/${lb.id}`}>
-                      Ouvrir
-                    </Link>
-                    <span style={{ display: 'inline-block', width: 8 }} />
-                    <a className="btn btn-sm" href={`/print/logbook/${lb.id}`} target="_blank" rel="noreferrer">
-                      Imprimer
-                    </a>
+              {loading ? (
+                <tr>
+                  <td colSpan={columns.length} className="muted">
+                    Chargement...
                   </td>
                 </tr>
-              ))}
+              ) : items.length ? (
+                items.map((l) => (
+                  <tr key={l.id}>
+                    <td style={{ fontWeight: 800 }}>{l.plate || l.vehicle_plate || l.vehicle_id}</td>
+                    <td>
+                      {toYMD(l.period_start)} → {toYMD(l.period_end)}
+                    </td>
+                    <td>
+                      <span className={typeChipClass(l.logbook_type)}>{l.logbook_type}</span>
+                    </td>
+                    <td>{l.objet || ''}</td>
+                    <td>
+                      <span className="chip chip-service" style={{ marginRight: 6 }}>S: {Number(l.service_km || 0)}</span>
+                      <span className="chip chip-mission">M: {Number(l.mission_km || 0)}</span>
+                    </td>
+                    <td>
+                      <span className={`badge ${statusBadgeClass(l.status)}`}>{l.status}</span>
+                    </td>
+                    <td className="logbooksActionsCell">
+                      {/* Voir */}
+                      <button
+                        className="iconActionBtn"
+                        onClick={() => openView(l.id)}
+                        title="Voir"
+                        aria-label="Voir"
+                      >
+                        <ion-icon name="eye-outline" />
+                      </button>
 
-              {!filtered.length && (
+                      {/* Ouvrir */}
+                      <button
+                        className="iconActionBtn iconActionBtnPrimary"
+                        onClick={() => navigate(`/app/logbooks/${l.id}`)}
+                        title="Ouvrir"
+                        aria-label="Ouvrir"
+                      >
+                        <ion-icon name="open-outline" />
+                      </button>
+
+                      {/* Imprimer */}
+                      <a
+                        className="iconActionBtn iconActionBtnDark"
+                        href={`/print/logbook/${l.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Imprimer"
+                        aria-label="Imprimer"
+                      >
+                        <ion-icon name="print-outline" />
+                      </a>
+
+                      {/* Corbeille */}
+                      {canManage && (
+                        <button
+                          className="iconActionBtn iconActionBtnDanger"
+                          onClick={() => softDelete(l.id)}
+                          title="Mettre à la corbeille"
+                          aria-label="Mettre à la corbeille"
+                        >
+                          <ion-icon name="trash-outline" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={columns.length} className="muted">
                     Aucun journal.
                   </td>
                 </tr>
@@ -299,19 +344,16 @@ export default function Logbooks() {
         </div>
       </div>
 
-      {/* CREATE */}
-      <div className="card">
-        <h3>Créer un journal</h3>
-        {!['LOGISTIQUE', 'ADMIN'].includes(role) ? (
-          <div className="muted">Accès Logistique/Admin.</div>
-        ) : (
-          <form onSubmit={create} className="form">
-            <label>
-              Véhicule
+      {/* MODAL CREATE */}
+      {showCreate && (
+        <Modal title="Créer un journal" onClose={() => setShowCreate(false)} width={720}>
+          <div className="row" style={{ gap: 12 }}>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <div className="label">Véhicule</div>
               <select
-                value={form.vehicle_id}
-                onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
-                required
+                className="input"
+                value={createForm.vehicle_id}
+                onChange={(e) => setCreateForm({ ...createForm, vehicle_id: e.target.value })}
               >
                 <option value="">-- sélectionner --</option>
                 {vehicles.map((v) => (
@@ -320,118 +362,102 @@ export default function Logbooks() {
                   </option>
                 ))}
               </select>
-            </label>
-
-            <div className="row2">
-              <label>
-                Du
-                <input
-                  type="date"
-                  value={form.period_start}
-                  onChange={(e) => setForm({ ...form, period_start: e.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                Au
-                <input
-                  type="date"
-                  value={form.period_end}
-                  onChange={(e) => setForm({ ...form, period_end: e.target.value })}
-                  required
-                />
-              </label>
             </div>
 
-            <label>
-              Objet
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <div className="label">Type de journal</div>
+              <select
+                className="input"
+                value={createForm.logbook_type}
+                onChange={(e) => setCreateForm({ ...createForm, logbook_type: e.target.value })}
+              >
+                <option value="SERVICE">SERVICE</option>
+                <option value="MISSION">MISSION</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="row" style={{ gap: 12, marginTop: 10 }}>
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <div className="label">Du</div>
               <input
-                value={form.objet}
-                onChange={(e) => setForm({ ...form, objet: e.target.value })}
-                placeholder="(optionnel)"
+                className="input"
+                type="date"
+                value={createForm.period_start}
+                onChange={(e) =>
+                  setCreateForm({ ...createForm, period_start: e.target.value, period_end: createForm.period_end || e.target.value })
+                }
               />
-            </label>
+            </div>
 
-            <button className="btn" disabled={creating}>
-              {creating ? '...' : 'Créer et ouvrir'}
+            <div className="field" style={{ flex: 1, minWidth: 260 }}>
+              <div className="label">Au</div>
+              <input
+                className="input"
+                type="date"
+                value={createForm.period_end}
+                min={createForm.period_start}
+                onChange={(e) => setCreateForm({ ...createForm, period_end: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div className="field" style={{ marginTop: 10 }}>
+            <div className="label">Objet</div>
+            <input
+              className="input"
+              value={createForm.objet}
+              onChange={(e) => setCreateForm({ ...createForm, objet: e.target.value })}
+              placeholder="(optionnel)"
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+            <button className="btn" onClick={create} disabled={creating}>
+              Créer et ouvrir
             </button>
-          </form>
-        )}
-      </div>
+          </div>
+        </Modal>
+      )}
 
-      {/* MODAL DETAILS */}
+      {/* MODAL VIEW */}
       {view && (
-        <Modal title="Détails journal de bord" onClose={() => setView(null)} width={900}>
+        <Modal title="Détail journal" onClose={() => setView(null)} width={760}>
           {view.loading ? (
             <div className="muted">Chargement...</div>
-          ) : view.book ? (
-            <div className="grid2">
-              <div className="card">
-                <div className="label">Véhicule</div>
-                <div>
-                  <b>{view.book.plate}</b> <span className="muted">{view.book.label || ''}</span>
+          ) : view.data ? (
+            <div className="card">
+              <div className="row" style={{ gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="muted">Véhicule</div>
+                  <div style={{ fontWeight: 800 }}>{view.data.plate || view.data.vehicle_plate || view.data.vehicle_id}</div>
                 </div>
-
-                <div className="label" style={{ marginTop: 10 }}>
-                  Période
-                </div>
-                <div>
-                  <b>{fmtDate(view.book.period_start)}</b> → <b>{fmtDate(view.book.period_end)}</b>
-                </div>
-
-                <div className="label" style={{ marginTop: 10 }}>
-                  Objet
-                </div>
-                <div>{view.book.objet || <span className="muted">—</span>}</div>
-
-                <div className="label" style={{ marginTop: 10 }}>
-                  Km
-                </div>
-                <div>
-                  <span className="badge badge-info" style={{ marginRight: 6 }}>
-                    Services: {view.book.service_km ?? 0}
-                  </span>
-                  <span className="badge badge-warn">Mission: {view.book.mission_km ?? 0}</span>
-                </div>
-
-                <div className="label" style={{ marginTop: 10 }}>
-                  Statut
-                </div>
-                <div>
-                  <span className={`badge ${badgeClass(view.book.status)}`}>{view.book.status}</span>
+                <div style={{ flex: 1 }}>
+                  <div className="muted">Type</div>
+                  <div style={{ fontWeight: 800 }}>{view.data.logbook_type}</div>
                 </div>
               </div>
 
-              <div className="card">
-                <div className="label">Résumé</div>
-                <div className="muted">
-                  Trajets: {view.trips.length} • Appro carburant: {view.supplies.length}
+              <div className="row" style={{ gap: 12, marginTop: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="muted">Période</div>
+                  <div>
+                    {toYMD(view.data.period_start)} → {toYMD(view.data.period_end)}
+                  </div>
                 </div>
-
-                <hr />
-
-                <div className="label">Derniers trajets</div>
-                <ul className="muted" style={{ marginTop: 8 }}>
-                  {view.trips.slice(0, 6).map((t) => (
-                    <li key={t.id}>
-                      {fmtDate(t.trip_date)} — {t.route_start || '...'} → {t.route_end || '...'}
-                    </li>
-                  ))}
-                  {!view.trips.length && <li>—</li>}
-                </ul>
-
-                <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
-                  <Link className="btn btn-secondary" to={`/app/logbooks/${view.book.id}`}>
-                    Ouvrir
-                  </Link>
-                  <a className="btn" href={`/print/logbook/${view.book.id}`} target="_blank" rel="noreferrer">
-                    Imprimer
-                  </a>
+                <div style={{ flex: 1 }}>
+                  <div className="muted">Statut</div>
+                  <div style={{ fontWeight: 800 }}>{view.data.status}</div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div className="muted">Objet</div>
+                <div>{view.data.objet || ''}</div>
               </div>
             </div>
           ) : (
-            <div className="muted">Aucune donnée</div>
+            <div className="muted">Introuvable.</div>
           )}
         </Modal>
       )}

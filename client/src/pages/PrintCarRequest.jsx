@@ -46,7 +46,14 @@ export default function PrintCarRequest() {
             Demande de voiture
           </div>
 
-          <Field label="Date proposée" value={fmtDate(req.proposed_date)} />
+          <Field
+            label="Période"
+            value={
+              String(req.end_date || req.proposed_date || '') !== String(req.proposed_date || '')
+                ? `${fmtDate(req.proposed_date)} → ${fmtDate(req.end_date)}`
+                : fmtDate(req.proposed_date)
+            }
+          />
           <Field label="Objet" value={req.objet} />
           <div style={{ margin: '15px 0', borderBottom: '1px dotted #999' }}></div>
           <Field label="Itinéraire" value={req.itinerary} multiline />
@@ -130,3 +137,4 @@ function Field({ label, value, multiline }) {
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('fr-FR') : ''; }
 function fmtTime(t) { return t ? t.slice(0, 5) : ''; }
+

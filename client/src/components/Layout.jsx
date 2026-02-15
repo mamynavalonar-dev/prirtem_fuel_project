@@ -1,3 +1,4 @@
+// client/src/components/Layout.jsx
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
@@ -41,12 +42,38 @@ const MENU = {
   ]
 };
 
+function uniqByTo(items) {
+  const seen = new Set();
+  const out = [];
+  for (const it of items) {
+    if (!it || !it.to) continue;
+    if (seen.has(it.to)) continue;
+    seen.add(it.to);
+    out.push(it);
+  }
+  return out;
+}
+
+function isVisaMenuItem(it) {
+  const label = String(it?.label || '').toLowerCase();
+  const to = String(it?.to || '').toLowerCase();
+  return label.includes('visa') || to.includes('/raf');
+}
+
 function getMenu(role) {
   const base = [...MENU.common];
-  if (role === 'DEMANDEUR') return [...base, ...MENU.demandeur];
-  if (role === 'LOGISTIQUE') return [...base, ...MENU.logistique];
-  if (role === 'RAF') return [...base, ...MENU.raf];
-  if (role === 'ADMIN') return MENU.admin;
+
+  if (role === 'DEMANDEUR') return uniqByTo([...base, ...MENU.demandeur]);
+  if (role === 'LOGISTIQUE') return uniqByTo([...base, ...MENU.logistique]);
+  if (role === 'RAF') return uniqByTo([...base, ...MENU.raf]);
+
+  // ✅ ADMIN = tous les menus (common + admin + demandeur + logistique)
+  // ❌ mais sans les menus VISA (RAF)
+  if (role === 'ADMIN') {
+    const all = uniqByTo([...base, ...MENU.admin, ...MENU.demandeur, ...MENU.logistique]);
+    return all.filter((it) => !isVisaMenuItem(it));
+  }
+
   return base;
 }
 
@@ -66,8 +93,21 @@ export default function Layout({ children }) {
 
   const currentTitle = useMemo(() => {
     const path = location.pathname;
-    const found = menu.find((m) => m.to === path || path.startsWith(m.to + '/'));
-    return found?.label || 'PRIRTEM';
+
+    // ✅ Meilleure correspondance: exact d'abord, sinon le préfixe le plus long
+    let best = null;
+    for (const m of menu) {
+      if (!m?.to) continue;
+      if (m.to === path) {
+        best = m;
+        break;
+      }
+      if (path.startsWith(m.to + '/')) {
+        if (!best || m.to.length > best.to.length) best = m;
+      }
+    }
+
+    return best?.label || 'PRIRTEM';
   }, [menu, location.pathname]);
 
   const [now, setNow] = useState(() => new Date());
