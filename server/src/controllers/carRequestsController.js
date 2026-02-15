@@ -18,11 +18,22 @@ async function nextRequestNo(client) {
   return { year, seq: nextSeq, request_no: fmtNo(nextSeq, year) };
 }
 
+function isYmd(s) {
+  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+// Compare YMD strings safely (YYYY-MM-DD)
+function ymdGte(a, b) {
+  if (!isYmd(a) || !isYmd(b)) return false;
+  return a >= b;
+}
+
 const createSchema = z.object({
-  proposed_date: z.string().min(4),
+  proposed_date: z.string().min(4), // YYYY-MM-DD
+  end_date: z.string().min(4).optional(), // YYYY-MM-DD
   objet: z.string().min(1),
   itinerary: z.string().min(1),
-  people: z.string().optional().nullable(),
+  people: z.string().min(1),
   depart_time_wanted: z.string().optional().nullable(),
   return_time_expected: z.string().optional().nullable(),
   vehicle_hint: z.string().optional().nullable(),
@@ -33,8 +44,10 @@ async function list(req, res) {
   const role = req.user.role;
   const userId = req.user.id;
 
-  let sql = `SELECT cr.*, u.username AS requester_username,
-                    v.plate AS vehicle_plate, d.full_name AS driver_name
+  let sql = `SELECT cr.*,
+                    u.username AS requester_username,
+                    v.plate AS vehicle_plate,
+                    d.full_name AS driver_name
              FROM car_requests cr
              JOIN users u ON u.id=cr.requester_id
              LEFT JOIN vehicles v ON v.id=cr.vehicle_id
@@ -47,6 +60,7 @@ async function list(req, res) {
     sql += ' WHERE cr.deleted_at IS NULL';
   }
   sql += ' ORDER BY cr.created_at DESC LIMIT 500';
+
   const { rows } = await pool.query(sql, params);
   res.json({ requests: rows });
 }
@@ -54,15 +68,21 @@ async function list(req, res) {
 async function getOne(req, res) {
   const { id } = req.params;
   const role = req.user.role;
+
   const params = [id];
-  let where = 'cr.deleted_at IS NULL AND cr.id=$1';
+  let where = 'cr.id=$1';
   if (role === 'DEMANDEUR') {
     params.push(req.user.id);
     where += ' AND cr.requester_id=$2';
   }
+
+  where = `cr.deleted_at IS NULL AND ${where}`;
+
   const { rows } = await pool.query(
-    `SELECT cr.*, u.username AS requester_username,
-            v.plate AS vehicle_plate, d.full_name AS driver_name
+    `SELECT cr.*,
+            u.username AS requester_username,
+            v.plate AS vehicle_plate,
+            d.full_name AS driver_name
      FROM car_requests cr
      JOIN users u ON u.id=cr.requester_id
      LEFT JOIN vehicles v ON v.id=cr.vehicle_id
@@ -85,20 +105,30 @@ async function create(req, res) {
 
     const id = uuidv4();
     const d = parsed.data;
+
+    const start = String(d.proposed_date || '').slice(0, 10);
+    const end = String(d.end_date || d.proposed_date || '').slice(0, 10);
+
+    if (!isYmd(start) || !isYmd(end) || !ymdGte(end, start)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'VALIDATION', details: { end_date: ['end_date doit être >= proposed_date'] } });
+    }
+
     await client.query(
       `INSERT INTO car_requests (
         id, year, seq, request_no,
-        proposed_date, objet, itinerary, people,
+        proposed_date, end_date, objet, itinerary, people,
         depart_time_wanted, return_time_expected,
         vehicle_hint, driver_hint,
         status, requester_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SUBMITTED',$13)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SUBMITTED',$14)`,
       [
         id,
         year,
         seq,
         request_no,
-        d.proposed_date,
+        start,
+        end,
         d.objet,
         d.itinerary,
         d.people || null,
@@ -173,6 +203,38 @@ async function reject(req, res) {
   res.json({ request: rows[0] });
 }
 
+async function cancel(req, res) {
+  const { id } = req.params;
+  const role = req.user.role;
+  const { reason } = req.body || {};
+
+  // Demandeur: peut annuler ses propres demandes tant que ce n'est pas RAF_APPROVED
+  // Admin/Logistique/RAF: peut annuler tant que ce n'est pas RAF_APPROVED
+  const params = [id, req.user.id, reason || null];
+
+  let where = `id=$1 AND deleted_at IS NULL AND status IN ('SUBMITTED','LOGISTICS_APPROVED')`;
+  if (role === 'DEMANDEUR') {
+    where += ` AND requester_id=$2`;
+  } else if (!['ADMIN', 'LOGISTIQUE', 'RAF'].includes(role)) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE car_requests
+     SET status='CANCELLED',
+         cancelled_at=now(),
+         cancelled_by=$2,
+         cancel_reason=$3,
+         updated_at=now()
+     WHERE ${where}
+     RETURNING *`,
+    params
+  );
+
+  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  res.json({ request: rows[0] });
+}
+
 async function softDelete(req, res) {
   const { id } = req.params;
   if (!['ADMIN', 'LOGISTIQUE'].includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
@@ -188,10 +250,9 @@ async function softDelete(req, res) {
   res.json({ ok: true });
 }
 
-
-
 const updateSchema = z.object({
   proposed_date: z.string().min(4).optional(),
+  end_date: z.string().min(4).optional(),
   objet: z.string().min(1).optional(),
   itinerary: z.string().min(1).optional(),
   people: z.string().min(1).optional(),
@@ -210,6 +271,7 @@ async function update(req, res) {
   const data = parsed.data;
   if (!Object.keys(data).length) return res.json({ ok: true });
 
+  // base permission: update uniquement quand SUBMITTED
   const params = [id];
   let where = "id=$1 AND deleted_at IS NULL AND status='SUBMITTED'";
 
@@ -220,9 +282,35 @@ async function update(req, res) {
     return res.status(403).json({ error: 'FORBIDDEN' });
   }
 
+  // Récupère la version actuelle pour valider le range de dates
+  const current = await pool.query(`SELECT proposed_date, end_date FROM car_requests WHERE ${where}`, params);
+  if (!current.rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_FORBIDDEN_OR_BAD_STATUS' });
+
+  const currentStart = String(current.rows[0].proposed_date || '').slice(0, 10);
+  const currentEnd = String(current.rows[0].end_date || currentStart || '').slice(0, 10);
+
+  const nextStart = isYmd(data.proposed_date) ? data.proposed_date : currentStart;
+  const nextEnd = isYmd(data.end_date) ? data.end_date : currentEnd;
+
+  if (!isYmd(nextStart) || !isYmd(nextEnd) || !ymdGte(nextEnd, nextStart)) {
+    return res.status(400).json({ error: 'VALIDATION', details: { end_date: ['end_date doit être >= proposed_date'] } });
+  }
+
   const set = [];
   const values = [];
   let idx = params.length + 1;
+
+  // force range values (even if unchanged) only when either start/end changed
+  if (data.proposed_date || data.end_date) {
+    set.push(`proposed_date=$${idx++}`);
+    values.push(nextStart);
+    set.push(`end_date=$${idx++}`);
+    values.push(nextEnd);
+
+    // remove from data to avoid duplicate set later
+    delete data.proposed_date;
+    delete data.end_date;
+  }
 
   for (const [k, v] of Object.entries(data)) {
     set.push(`${k}=$${idx++}`);
@@ -236,4 +324,4 @@ async function update(req, res) {
   res.json({ request: rows[0] });
 }
 
-module.exports = { list, getOne, create, update, logisticsApprove, rafApprove, reject, softDelete };
+module.exports = { list, getOne, create, update, logisticsApprove, rafApprove, reject, cancel, softDelete };

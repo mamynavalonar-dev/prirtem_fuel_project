@@ -1,90 +1,114 @@
+const asyncHandler = require('../utils/asyncHandler');
 const { pool } = require('../db');
 
-// ========== ENTITÉS AVEC fuel_logs ==========
 const ENTITIES = {
   vehicles: {
     table: 'vehicles',
-    select: 'id, plate, label, is_active, deleted_at'
+    deletedAtCol: 'deleted_at',
+    select: 'id, plate, label, deleted_at'
   },
   drivers: {
     table: 'drivers',
-    select: 'id, full_name, phone, is_active, deleted_at'
+    deletedAtCol: 'deleted_at',
+    select: 'id, full_name, phone, deleted_at'
   },
   fuel_requests: {
     table: 'fuel_requests',
-    select: 'id, request_no, request_date, request_type, objet, amount_estimated_ar, status, deleted_at'
+    deletedAtCol: 'deleted_at',
+    select: 'id, request_no, request_date, request_type, amount_estimated_ar, status, deleted_at'
   },
   car_requests: {
     table: 'car_requests',
+    deletedAtCol: 'deleted_at',
     select: 'id, request_no, proposed_date, objet, status, deleted_at'
   },
-  // ========== NOUVEAUX: FUEL LOGS ==========
   vehicle_fuel_logs: {
     table: 'vehicle_fuel_logs',
+    deletedAtCol: 'deleted_at',
     select: 'id, log_date, km_depart, km_arrivee, montant_ar, deleted_at'
   },
   generator_fuel_logs: {
     table: 'generator_fuel_logs',
+    deletedAtCol: 'deleted_at',
     select: 'id, log_date, liters, montant_ar, deleted_at'
   },
   other_fuel_logs: {
     table: 'other_fuel_logs',
+    deletedAtCol: 'deleted_at',
     select: 'id, log_date, liters, montant_ar, lien, deleted_at'
+  },
+
+  /** ✅ Journaux de bord voiture */
+  car_logbooks: {
+    table: 'car_logbooks',
+    deletedAtCol: 'deleted_at',
+    select: `
+      id,
+      vehicle_id,
+      (SELECT plate FROM vehicles v WHERE v.id = car_logbooks.vehicle_id) AS plate,
+      period_start,
+      period_end,
+      objet,
+      logbook_type,
+      status,
+      deleted_at
+    `
   }
 };
 
-function getEntity(name) {
-  const ent = ENTITIES[name];
-  if (!ent) {
-    const err = new Error('UNKNOWN_ENTITY');
-    err.statusCode = 400;
-    throw err;
+function mustBeAdminOrLogistique(req, res) {
+  const role = req.user?.role;
+  if (!['ADMIN', 'LOGISTIQUE'].includes(role)) {
+    res.status(403).json({ error: 'Accès refusé' });
+    return false;
   }
-  return ent;
+  return true;
 }
 
-async function list(req, res) {
+exports.list = asyncHandler(async (req, res) => {
+  if (!mustBeAdminOrLogistique(req, res)) return;
+
   const { entity } = req.params;
-  const ent = getEntity(entity);
+  const ent = ENTITIES[entity];
+  if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rows } = await pool.query(
-    `SELECT ${ent.select}
-     FROM ${ent.table}
-     WHERE deleted_at IS NOT NULL
-     ORDER BY deleted_at DESC
-     LIMIT 500`
-  );
+  const sql = `
+    SELECT ${ent.select}
+    FROM ${ent.table}
+    WHERE ${ent.deletedAtCol} IS NOT NULL
+    ORDER BY ${ent.deletedAtCol} DESC
+    LIMIT 500
+  `;
 
+  const { rows } = await pool.query(sql);
   res.json({ items: rows });
-}
+});
 
-async function restore(req, res) {
+exports.restore = asyncHandler(async (req, res) => {
+  if (!mustBeAdminOrLogistique(req, res)) return;
+
   const { entity, id } = req.params;
-  const ent = getEntity(entity);
+  const ent = ENTITIES[entity];
+  if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rows } = await pool.query(
-    `UPDATE ${ent.table}
-     SET deleted_at=NULL
-     WHERE id=$1 AND deleted_at IS NOT NULL
-     RETURNING id`,
+  const { rowCount } = await pool.query(
+    `UPDATE ${ent.table} SET ${ent.deletedAtCol}=NULL WHERE id=$1`,
     [id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.json({ ok: true });
-}
 
-async function hardDelete(req, res) {
+  if (!rowCount) return res.status(404).json({ error: 'Introuvable' });
+  res.json({ ok: true });
+});
+
+exports.hardDelete = asyncHandler(async (req, res) => {
+  if (!mustBeAdminOrLogistique(req, res)) return;
+
   const { entity, id } = req.params;
-  const ent = getEntity(entity);
+  const ent = ENTITIES[entity];
+  if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rows } = await pool.query(
-    `DELETE FROM ${ent.table}
-     WHERE id=$1 AND deleted_at IS NOT NULL
-     RETURNING id`,
-    [id]
-  );
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND' });
+  const { rowCount } = await pool.query(`DELETE FROM ${ent.table} WHERE id=$1`, [id]);
+  if (!rowCount) return res.status(404).json({ error: 'Introuvable' });
+
   res.json({ ok: true });
-}
-
-module.exports = { list, restore, hardDelete };
+});

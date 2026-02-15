@@ -15,6 +15,7 @@ router.put('/:id', asyncHandler(ctrl.update));
 router.post('/:id/visa', asyncHandler(ctrl.logisticsApprove));
 router.post('/:id/approve', asyncHandler(ctrl.rafApprove));
 router.post('/:id/reject', asyncHandler(ctrl.reject));
+router.post('/:id/cancel', asyncHandler(ctrl.cancel));
 
 // Legacy/alt endpoints
 router.patch('/:id/logistics-approve', asyncHandler(ctrl.logisticsApprove));
@@ -25,3 +26,5 @@ router.patch('/:id/reject', asyncHandler(ctrl.reject));
 router.delete('/:id', asyncHandler(ctrl.softDelete));
 
 module.exports = router;
+
+

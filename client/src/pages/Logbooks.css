@@ -1,0 +1,122 @@
+/* ======= Layout ======= */
+.logbooksCard {
+  width: 100%;
+}
+
+/* header row: title left, actions right */
+.logbooksHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.logbooksHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Reset button: icon + label */
+.logbooksResetBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* ======= Table dark-mode safe + zebra ======= */
+.logbooksTable {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.logbooksTable thead th {
+  background: var(--table-head-bg);
+  color: #020202;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+
+.logbooksTable tbody td {
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+:root[data-theme="light"] .logbooksTable {
+  --lb-row: #ffffff;
+  --lb-row-alt: #eaf6ff; /* bleu clair comme ton exemple */
+}
+
+:root[data-theme="dark"] .logbooksTable {
+  --lb-row: rgba(255,255,255,0.04);
+  --lb-row-alt: rgba(255,255,255,0.08);
+}
+
+.logbooksTable tbody tr {
+  background: var(--lb-row);
+}
+
+.logbooksTable tbody tr:nth-child(odd) {
+  background: var(--lb-row-alt);
+}
+
+/* ======= Action buttons (icons) ======= */
+.logbooksActionsCell {
+  white-space: nowrap;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.iconActionBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.iconActionBtn ion-icon {
+  font-size: 18px;
+  color: currentColor; /* IMPORTANT => l'oeil ne sera plus blanc/invisible */
+}
+
+:root[data-theme="light"] .iconActionBtn {
+  background: rgba(255,255,255,0.9);
+}
+
+:root[data-theme="dark"] .iconActionBtn {
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+}
+
+.iconActionBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+/* variations */
+.iconActionBtnPrimary {
+  border-color: rgba(86,176,255,0.35);
+}
+
+.iconActionBtnDark {
+  border-color: rgba(0,0,0,0.15);
+}
+
+:root[data-theme="dark"] .iconActionBtnDark {
+  border-color: rgba(255,255,255,0.14);
+}
+
+.iconActionBtnDanger {
+  border-color: rgba(255,100,100,0.35);
+}

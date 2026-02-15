@@ -34,6 +34,12 @@
   --icon-bg: rgba(15,23,42,.06);
   --icon-border: rgba(15,23,42,.10);
 
+  /* ✅ TABLE tokens (LIGHT) */
+  --table-cell-fg: var(--text);
+  --table-border: rgba(15, 23, 42, .10);
+  --table-row-alt: rgba(2, 132, 199, .06);
+  --table-row-hover: rgba(2, 132, 199, .10);
+
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
   color: var(--text);
   background: var(--bg);
@@ -70,8 +76,13 @@ html[data-theme="dark"]{
   --icon-bg: rgba(255,255,255,.06);
   --icon-border: rgba(255,255,255,.12);
 
-  color-scheme: dark;
+  /* ✅ TABLE tokens (DARK) */
+  --table-cell-fg: rgba(248, 250, 252, .92);
+  --table-border: rgba(255, 255, 255, .10);
+  --table-row-alt: rgba(255, 255, 255, .03);
+  --table-row-hover: rgba(255, 255, 255, .06);
 
+  color-scheme: dark;
 }
 
 *{ box-sizing: border-box; }
@@ -356,17 +367,23 @@ html[data-theme="dark"] .btn-danger{ color: rgba(255,255,255,.92); }
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+
 .table{
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
   min-width: 760px;
+  color: var(--table-cell-fg); /* ✅ FIX lisibilité light */
 }
+
 .table th, .table td{
   padding: 12px 12px;
-  border-bottom: 1px solid rgba(255,255,255,.06);
+  border-bottom: 1px solid var(--table-border); /* ✅ FIX border light */
   vertical-align: top;
+  color: var(--table-cell-fg); /* ✅ FIX lisibilité light */
 }
+
+/* Header */
 .table th{
   position: sticky;
   top: 0;
@@ -381,7 +398,16 @@ html[data-theme="dark"] .btn-danger{ color: rgba(255,255,255,.92); }
 html[data-theme="dark"] .table th{
   color: rgba(229,231,235,.85);
 }
-.table tbody tr:hover{ background: rgba(37,99,235,.04); }
+
+/* Hover */
+.table tbody tr:hover{
+  background: var(--table-row-hover);
+}
+
+/* Zebra optionnelle */
+.table.table-zebra tbody tr:nth-child(even){
+  background: var(--table-row-alt);
+}
 
 /* ===================== BADGES ===================== */
 .badge{
@@ -788,6 +814,7 @@ html[data-theme="dark"] :is(
 ){
   background: rgba(255, 255, 255, 0.08) !important;
 }
+
 /* ===================== DASHBOARD CHARTS (3 COLS) ===================== */
 .dashCharts{
   display: grid;

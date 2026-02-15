@@ -1,5 +1,4 @@
-// client/src/pages/FuelRequests.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import Modal from '../components/Modal.jsx';
@@ -17,16 +16,8 @@ const TYPES = [
   { value: 'MISSION', label: 'MISSION' }
 ];
 
-function ymdToday() {
+function todayYMD() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function fmtPeriod(start, end) {
-  const s = (start || '').slice(0, 10);
-  const e = (end || '').slice(0, 10);
-  if (!s && !e) return '';
-  if (e && s && e !== s) return `${s} → ${e}`;
-  return s || e;
 }
 
 export default function FuelRequests() {
@@ -38,17 +29,16 @@ export default function FuelRequests() {
   const [err, setErr] = useState(null);
 
   const [form, setForm] = useState(() => {
-    const today = ymdToday();
+    const t = todayYMD();
     return {
       request_type: 'SERVICE',
       objet: '',
       amount_estimated_ar: 0,
       amount_estimated_words: '',
-      request_date: today,
-      end_date: today
+      request_date: t,
+      end_date: t
     };
   });
-
   const [creating, setCreating] = useState(false);
 
   const [view, setView] = useState(null); // {loading, data}
@@ -60,11 +50,10 @@ export default function FuelRequests() {
   const canApprove = ['RAF', 'ADMIN'].includes(role);
   const canSoftDelete = ['LOGISTIQUE', 'ADMIN'].includes(role);
 
-  const columns = useMemo(() => {
-    return ['N°', 'Période', 'Type', 'Objet', 'Montant', 'Statut', 'Actions'];
-  }, []);
+  const columns = useMemo(() => ['N°', 'Période', 'Type', 'Objet', 'Montant', 'Statut', 'Actions'], []);
 
-  async function load() {
+  const load = useCallback(async () => {
+    if (!token) return; // évite le 401 pendant que l'auth se charge
     setLoading(true);
     setErr(null);
     try {
@@ -75,43 +64,33 @@ export default function FuelRequests() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [token]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   const create = async () => {
+    if (!token) return;
     setCreating(true);
     setErr(null);
-
     try {
-      const start = form.request_date;
-      const end = form.end_date || start;
-
-      if (start && end && end < start) {
-        setErr('La date fin ne peut pas être avant la date début.');
-        return;
-      }
-
       const body = {
         ...form,
-        request_date: start,
-        end_date: end,
-        amount_estimated_ar: Number(form.amount_estimated_ar || 0)
+        amount_estimated_ar: Number(form.amount_estimated_ar || 0),
+        request_date: form.request_date || todayYMD(),
+        end_date: form.end_date || form.request_date || todayYMD()
       };
-
       await apiFetch('/api/requests/fuel', { method: 'POST', token, body });
 
-      const today = ymdToday();
+      const t = todayYMD();
       setForm({
         request_type: 'SERVICE',
         objet: '',
         amount_estimated_ar: 0,
         amount_estimated_words: '',
-        request_date: today,
-        end_date: today
+        request_date: t,
+        end_date: t
       });
 
       await load();
@@ -123,6 +102,7 @@ export default function FuelRequests() {
   };
 
   const openView = async (id) => {
+    if (!token) return;
     setView({ loading: true, data: null });
     try {
       const d = await apiFetch(`/api/requests/fuel/${id}`, { token });
@@ -136,8 +116,8 @@ export default function FuelRequests() {
   const openEdit = (r) => {
     setEditId(r.id);
     setDraft({
-      request_date: (r.request_date || '').slice(0, 10),
-      end_date: (r.end_date || r.request_date || '').slice(0, 10),
+      request_date: String(r.request_date || '').slice(0, 10) || todayYMD(),
+      end_date: String(r.end_date || r.request_date || '').slice(0, 10) || todayYMD(),
       request_type: r.request_type || 'SERVICE',
       objet: r.objet || '',
       amount_estimated_ar: Number(r.amount_estimated_ar || 0),
@@ -151,20 +131,12 @@ export default function FuelRequests() {
   };
 
   const saveEdit = async () => {
+    if (!token) return;
     if (!editId || !draft) return;
-
-    const start = draft.request_date;
-    const end = draft.end_date || start;
-
-    if (start && end && end < start) {
-      alert('La date fin ne peut pas être avant la date début.');
-      return;
-    }
-
     try {
       const body = {
-        request_date: start,
-        end_date: end,
+        request_date: draft.request_date,
+        end_date: draft.end_date || draft.request_date,
         request_type: draft.request_type,
         objet: draft.objet,
         amount_estimated_ar: Number(draft.amount_estimated_ar || 0),
@@ -179,6 +151,7 @@ export default function FuelRequests() {
   };
 
   const softDelete = async (id) => {
+    if (!token) return;
     const ok = confirm('Déplacer dans Corbeille ?');
     if (!ok) return;
     try {
@@ -191,24 +164,28 @@ export default function FuelRequests() {
   };
 
   const submit = async (id) => {
+    if (!token) return;
     await apiFetch(`/api/requests/fuel/${id}/submit`, { method: 'PATCH', token });
     await load();
   };
   const verify = async (id) => {
+    if (!token) return;
     await apiFetch(`/api/requests/fuel/${id}/verify`, { method: 'PATCH', token });
     await load();
   };
   const approve = async (id) => {
+    if (!token) return;
     await apiFetch(`/api/requests/fuel/${id}/approve`, { method: 'PATCH', token });
     await load();
   };
   const reject = async (id) => {
+    if (!token) return;
     const reason = prompt('Motif de rejet (optionnel) :') || '';
     await apiFetch(`/api/requests/fuel/${id}/reject`, { method: 'PATCH', token, body: { reason } });
     await load();
   };
-
   const cancelRequest = async (id) => {
+    if (!token) return;
     const reason = prompt("Motif d'annulation (optionnel) :") || '';
     const ok = confirm('Annuler cette demande ?');
     if (!ok) return;
@@ -220,12 +197,10 @@ export default function FuelRequests() {
     }
   };
 
-  const badgeClass = (status) => {
-    const s = String(status || '').toUpperCase();
-    if (s === 'APPROVED') return 'badge badge-ok';
-    if (s === 'REJECTED') return 'badge badge-bad';
-    if (s === 'CANCELLED') return 'badge';
-    return 'badge';
+  const fmtPeriod = (r) => {
+    const a = String(r.request_date || '').slice(0, 10);
+    const b = String(r.end_date || r.request_date || '').slice(0, 10);
+    return b && a && b !== a ? `${a} → ${b}` : a;
   };
 
   return (
@@ -241,11 +216,13 @@ export default function FuelRequests() {
                 className="input"
                 type="date"
                 value={form.request_date}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  const nextEnd = !form.end_date || form.end_date < v ? v : form.end_date;
-                  setForm({ ...form, request_date: v, end_date: nextEnd });
-                }}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    request_date: e.target.value,
+                    end_date: form.end_date || e.target.value
+                  })
+                }
               />
             </div>
 
@@ -296,6 +273,7 @@ export default function FuelRequests() {
                 onChange={(e) => setForm({ ...form, amount_estimated_ar: e.target.value })}
               />
             </div>
+
             <div className="field" style={{ flex: 1 }}>
               <div className="label">Montant (en lettre)</div>
               <input
@@ -353,30 +331,29 @@ export default function FuelRequests() {
 
                     <td>
                       {isEditing ? (
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <div className="row" style={{ gap: 8 }}>
                           <input
                             className="input"
                             type="date"
                             value={draft?.request_date || ''}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              const nextEnd = !draft?.end_date || draft.end_date < v ? v : draft.end_date;
-                              setDraft({ ...draft, request_date: v, end_date: nextEnd });
-                            }}
-                            style={{ minWidth: 150 }}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                request_date: e.target.value,
+                                end_date: draft?.end_date || e.target.value
+                              })
+                            }
                           />
-                          <span className="muted">→</span>
                           <input
                             className="input"
                             type="date"
-                            value={draft?.end_date || draft?.request_date || ''}
                             min={draft?.request_date || ''}
+                            value={draft?.end_date || ''}
                             onChange={(e) => setDraft({ ...draft, end_date: e.target.value })}
-                            style={{ minWidth: 150 }}
                           />
                         </div>
                       ) : (
-                        fmtPeriod(r.request_date, r.end_date || r.request_date)
+                        fmtPeriod(r)
                       )}
                     </td>
 
@@ -424,7 +401,13 @@ export default function FuelRequests() {
                     </td>
 
                     <td>
-                      <span className={badgeClass(r.status)}>{r.status}</span>
+                      <span
+                        className={`badge ${
+                          r.status === 'APPROVED' ? 'badge-ok' : r.status === 'REJECTED' ? 'badge-bad' : ''
+                        }`}
+                      >
+                        {r.status}
+                      </span>
                     </td>
 
                     <td style={{ whiteSpace: 'nowrap' }}>
@@ -464,15 +447,14 @@ export default function FuelRequests() {
                         </>
                       )}
 
-                      {role === 'DEMANDEUR' &&
-                        ['DRAFT', 'SUBMITTED', 'VERIFIED', 'REJECTED'].includes(r.status) && (
-                          <>
-                            <button className="btn btn-outline btn-sm" onClick={() => cancelRequest(r.id)}>
-                              Annuler
-                            </button>
-                            <span style={{ display: 'inline-block', width: 8 }} />
-                          </>
-                        )}
+                      {role === 'DEMANDEUR' && ['DRAFT', 'SUBMITTED', 'VERIFIED', 'REJECTED'].includes(r.status) && (
+                        <>
+                          <button className="btn btn-outline btn-sm" onClick={() => cancelRequest(r.id)}>
+                            Annuler
+                          </button>
+                          <span style={{ display: 'inline-block', width: 8 }} />
+                        </>
+                      )}
 
                       <a
                         className="btn btn-outline btn-sm"
@@ -490,13 +472,11 @@ export default function FuelRequests() {
                           Envoyer
                         </button>
                       )}
-
                       {canVerify && r.status === 'SUBMITTED' && (
                         <button className="btn btn-sm" onClick={() => verify(r.id)}>
                           Vérifier (Logistique)
                         </button>
                       )}
-
                       {canApprove && r.status === 'VERIFIED' && (
                         <>
                           <button className="btn btn-sm" onClick={() => approve(r.id)}>
@@ -544,7 +524,14 @@ export default function FuelRequests() {
                 <div className="row">
                   <div style={{ flex: 1 }}>
                     <div className="muted">Période</div>
-                    <div>{fmtPeriod(view.data.request_date, view.data.end_date || view.data.request_date)}</div>
+                    <div>
+                      {String(view.data.end_date || view.data.request_date || '').slice(0, 10) !==
+                      String(view.data.request_date || '').slice(0, 10)
+                        ? `${String(view.data.request_date || '').slice(0, 10)} → ${String(
+                            view.data.end_date || ''
+                          ).slice(0, 10)}`
+                        : String(view.data.request_date || '').slice(0, 10)}
+                    </div>
                   </div>
                   <div style={{ flex: 1 }}>
                     <div className="muted">Type</div>
@@ -572,13 +559,6 @@ export default function FuelRequests() {
                   <div style={{ marginTop: 8 }}>
                     <div className="muted">Motif rejet</div>
                     <div style={{ color: '#b91c1c' }}>{view.data.reject_reason}</div>
-                  </div>
-                )}
-
-                {view.data.cancel_reason && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="muted">Motif annulation</div>
-                    <div style={{ color: '#6b7280' }}>{view.data.cancel_reason}</div>
                   </div>
                 )}
               </div>

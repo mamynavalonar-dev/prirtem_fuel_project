@@ -16,6 +16,7 @@ export default function CarRequests() {
 
   const [form, setForm] = useState({
     proposed_date: new Date().toISOString().slice(0, 10),
+    end_date: new Date().toISOString().slice(0, 10),
     objet: '',
     itinerary: '',
     people: '',
@@ -99,6 +100,7 @@ export default function CarRequests() {
     setEditId(r.id);
     setDraft({
       proposed_date: (r.proposed_date || '').slice(0, 10),
+      end_date: (r.end_date || r.proposed_date || '').slice(0, 10),
       objet: r.objet || '',
       itinerary: r.itinerary || '',
       people: r.people || '',
@@ -119,6 +121,7 @@ export default function CarRequests() {
     try {
       const body = {
         proposed_date: draft.proposed_date,
+        end_date: draft.end_date || draft.proposed_date,
         objet: draft.objet,
         itinerary: draft.itinerary,
         people: draft.people,
@@ -181,6 +184,18 @@ export default function CarRequests() {
     if (['ADMIN', 'LOGISTIQUE'].includes(role)) return r.status === 'SUBMITTED';
     return false;
   };
+  const cancelRequest = async (id) => {
+    const reason = prompt('Motif d\'annulation (optionnel) :') || '';
+    const ok = confirm('Annuler cette demande ?');
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/requests/car/${id}/cancel`, { method: 'POST', token, body: { reason } });
+      await load();
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  };
+
 
   return (
     <div>
@@ -194,7 +209,11 @@ export default function CarRequests() {
           <div className="grid2">
             <div className="field">
               <div className="label">Date proposée</div>
-              <input className="input" type="date" value={form.proposed_date} onChange={(e) => setForm({ ...form, proposed_date: e.target.value })} />
+              <input className="input" type="date" value={form.proposed_date} onChange={(e) => setForm({ ...form, proposed_date: e.target.value, end_date: form.end_date || e.target.value })} />
+            </div>
+            <div className="field">
+              <div className="label">Date fin</div>
+              <input className="input" type="date" value={form.end_date} min={form.proposed_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
             </div>
             <div className="field">
               <div className="label">Objet</div>
@@ -249,9 +268,15 @@ export default function CarRequests() {
                     <td><b>{r.request_no}</b></td>
                     <td>
                       {editing ? (
-                        <input className="input" type="date" value={draft?.proposed_date || ''} onChange={(e) => setDraft({ ...draft, proposed_date: e.target.value })} />
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input className="input" type="date" value={draft?.proposed_date || ''} onChange={(e) => setDraft({ ...draft, proposed_date: e.target.value, end_date: draft?.end_date || e.target.value })} />
+                          <span className="muted">→</span>
+                          <input className="input" type="date" value={draft?.end_date || ''} min={draft?.proposed_date || ''} onChange={(e) => setDraft({ ...draft, end_date: e.target.value })} />
+                        </div>
                       ) : (
-                        String(r.proposed_date || '')
+                        (String(r.end_date || r.proposed_date || '') !== String(r.proposed_date || '')
+                          ? `${String(r.proposed_date || '')} → ${String(r.end_date || '')}`
+                          : String(r.proposed_date || ''))
                       )}
                     </td>
                     <td>
@@ -280,6 +305,13 @@ export default function CarRequests() {
                             <span style={{ display: 'inline-block', width: 8 }} />
                           </>
                         )
+                      )}
+
+                      {role === 'DEMANDEUR' && ['SUBMITTED','LOGISTICS_APPROVED'].includes(r.status) && (
+                        <>
+                          <button className="btn btn-outline btn-sm" onClick={() => cancelRequest(r.id)}>Annuler</button>
+                          <span style={{ display: 'inline-block', width: 8 }} />
+                        </>
                       )}
 
                       <a className="btn btn-outline btn-sm" href={`/print/car/${r.id}`} target="_blank" rel="noreferrer">Imprimer</a>
@@ -340,8 +372,12 @@ export default function CarRequests() {
             <div>
               <div className="grid2">
                 <div className="card">
-                  <div className="muted">Date proposée</div>
-                  <div style={{ fontWeight: 800 }}>{String(view.data.proposed_date || '')}</div>
+                  <div className="muted">Période</div>
+                  <div style={{ fontWeight: 800 }}>
+                    {String(view.data.end_date || view.data.proposed_date || '') !== String(view.data.proposed_date || '')
+                      ? `${String(view.data.proposed_date || '')} → ${String(view.data.end_date || '')}`
+                      : String(view.data.proposed_date || '')}
+                  </div>
                 </div>
                 <div className="card">
                   <div className="muted">Statut</div>
@@ -425,3 +461,4 @@ export default function CarRequests() {
     </div>
   );
 }
+

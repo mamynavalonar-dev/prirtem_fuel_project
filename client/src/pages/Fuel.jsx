@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch, getApiUrl } from '../utils/api.js';
 import Modal from '../components/Modal.jsx';
@@ -90,7 +91,31 @@ const SORTABLE_KEYS = new Set(['log_date', 'liters', 'montant_ar']);
 export default function Fuel() {
   const { token, user } = useAuth();
 
-  const [tab, setTab] = useState('vehicle');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const urlTab = String(searchParams.get('tab') || '').toLowerCase();
+  const initialTab = ['vehicle', 'generator', 'other'].includes(urlTab) ? urlTab : 'vehicle';
+
+  const [tab, setTab] = useState(initialTab);
+
+  // ✅ Synchronise l'onglet avec l'URL (utile pour les boutons "Ouvrir" du Dashboard + back/forward)
+  useEffect(() => {
+    const t = String(searchParams.get('tab') || '').toLowerCase();
+    if (t && t !== tab && ['vehicle', 'generator', 'other'].includes(t)) {
+      setTab(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  useEffect(() => {
+    const current = String(searchParams.get('tab') || '').toLowerCase();
+    if (current !== tab) {
+      const next = new URLSearchParams(searchParams);
+      next.set('tab', tab);
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [vehicles, setVehicles] = useState([]);

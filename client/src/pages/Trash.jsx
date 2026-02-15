@@ -8,10 +8,23 @@ const ENTITIES = [
   { key: 'drivers', label: 'Chauffeurs' },
   { key: 'fuel_requests', label: 'Demandes carburant' },
   { key: 'car_requests', label: 'Demandes voiture' },
+  { key: 'car_logbooks', label: 'Journaux de bord' },
   { key: 'vehicle_fuel_logs', label: 'Suivi carburant (Véhicules)' },
   { key: 'generator_fuel_logs', label: 'Suivi carburant (Groupe électrogène)' },
   { key: 'other_fuel_logs', label: 'Suivi carburant (Autres)' }
 ];
+
+function fmt(v) {
+  if (v === null || v === undefined) return '';
+  return String(v);
+}
+
+function fmtDate(v) {
+  if (!v) return '';
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return s;
+}
 
 export default function Trash() {
   const { token } = useAuth();
@@ -28,6 +41,7 @@ export default function Trash() {
     if (entity === 'drivers') return ['full_name', 'phone', 'deleted_at'];
     if (entity === 'fuel_requests') return ['request_no', 'request_date', 'request_type', 'amount_estimated_ar', 'status', 'deleted_at'];
     if (entity === 'car_requests') return ['request_no', 'proposed_date', 'objet', 'status', 'deleted_at'];
+    if (entity === 'car_logbooks') return ['plate', 'period_start', 'period_end', 'logbook_type', 'objet', 'status', 'deleted_at'];
     if (entity === 'vehicle_fuel_logs') return ['log_date', 'km_depart', 'km_arrivee', 'montant_ar', 'deleted_at'];
     if (entity === 'generator_fuel_logs') return ['log_date', 'liters', 'montant_ar', 'deleted_at'];
     if (entity === 'other_fuel_logs') return ['log_date', 'liters', 'montant_ar', 'lien', 'deleted_at'];
@@ -49,6 +63,7 @@ export default function Trash() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity]);
 
   const openRestore = (item) => {
@@ -94,109 +109,84 @@ export default function Trash() {
       <h1 style={{ marginTop: 0 }}>🗑️ Corbeille</h1>
 
       <div className="row" style={{ alignItems: 'flex-end', marginBottom: 12 }}>
-        <div className="field" style={{ minWidth: 300 }}>
+        <div className="field" style={{ minWidth: 320 }}>
           <div className="label">Type</div>
           <select className="input" value={entity} onChange={(e) => setEntity(e.target.value)}>
-            {ENTITIES.map((e) => (
-              <option key={e.key} value={e.key}>{e.label}</option>
+            {ENTITIES.map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
             ))}
           </select>
         </div>
-        <button className="btn btn-outline" onClick={load}>Recharger</button>
       </div>
 
-      {err && <div className="muted" style={{ color: '#b91c1c', marginBottom: 12 }}>{err}</div>}
+      {err && <div className="muted" style={{ color: '#b91c1c', marginBottom: 10 }}>{err}</div>}
 
       <div style={{ overflow: 'auto' }}>
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th>
-              {columns.map((c) => (<th key={c}>{c}</th>))}
-              <th style={{ width: 260 }}>Actions</th>
+              {columns.map((c) => <th key={c}>{c}</th>)}
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={columns.length + 2} className="muted">Chargement...</td></tr>
+              <tr><td colSpan={columns.length + 1} className="muted">Chargement...</td></tr>
             ) : items.length ? (
               items.map((it) => (
                 <tr key={it.id}>
-                  <td className="muted" style={{ fontSize: 11 }}>{String(it.id).slice(0, 8)}...</td>
                   {columns.map((c) => (
                     <td key={c}>
-                      {c === 'amount_estimated_ar' || c === 'montant_ar' ? Number(it[c] || 0).toLocaleString('fr-FR') + ' Ar' :
-                       c === 'deleted_at' ? new Date(it[c]).toLocaleString('fr-FR') :
-                       String(it[c] ?? '')}
+                      {c.endsWith('_date') || c.endsWith('_at') || c.includes('period_') || c === 'log_date'
+                        ? fmtDate(it[c])
+                        : fmt(it[c])
+                      }
                     </td>
                   ))}
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => openRestore(it)}>Restaurer</button>
+                    <button className="btn btn-sm" onClick={() => openRestore(it)}>Restaurer</button>
                     <span style={{ display: 'inline-block', width: 8 }} />
-                    <button className="btn btn-danger btn-sm" onClick={() => openHard(it)}>Supprimer définitif</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => openHard(it)}>Supprimer</button>
                   </td>
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={columns.length + 2} className="muted">Corbeille vide ✅</td></tr>
+              <tr><td colSpan={columns.length + 1} className="muted">Corbeille vide.</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <div className="muted" style={{ marginTop: 16, padding: 12, background: '#f9fafb', borderRadius: 8 }}>
-        <strong>💡 Comment ça marche ?</strong>
-        <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-          <li><strong>Restaurer</strong> : Remet l'élément dans l'app (accessible normalement)</li>
-          <li><strong>Supprimer définitif</strong> : Efface DÉFINITIVEMENT de la base de données (irréversible)</li>
-        </ul>
-      </div>
-
       {confirm && (
         <Modal
-          title={confirm.type === 'restore' ? 'Restaurer cet élément ?' : 'Suppression définitive'}
+          title={confirm.type === 'restore' ? 'Restaurer' : 'Supprimer définitivement'}
           onClose={() => setConfirm(null)}
-          width={560}
+          width={620}
         >
-          {confirm.type === 'restore' ? (
-            <div>
-              <div style={{ marginBottom: 12 }}>
-                Voulez-vous restaurer cet élément ?<br />
-                <span className="muted">Il redeviendra accessible normalement.</span>
-              </div>
-              <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-                <button className="btn btn-outline" onClick={() => setConfirm(null)}>Annuler</button>
-                <button className="btn" onClick={runConfirm}>✅ Restaurer</button>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div style={{ marginBottom: 10, padding: 12, background: '#fef2f2', borderRadius: 8, border: '1px solid #fca5a5' }}>
-                <strong style={{ color: '#b91c1c' }}>⚠️ ATTENTION : Cette action est IRRÉVERSIBLE</strong><br />
-                <span className="muted">L'élément sera supprimé définitivement de la base de données.</span>
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                Tapez exactement <strong style={{ color: '#b91c1c' }}>SUPPRIMER</strong> pour confirmer :
+          <div className="muted" style={{ marginBottom: 10 }}>
+            Élément : <b>{confirm.item.id}</b>
+          </div>
+
+          {confirm.type === 'hard' && (
+            <>
+              <div className="muted" style={{ marginBottom: 10 }}>
+                ⚠️ Tape <b>SUPPRIMER</b> pour confirmer la suppression définitive.
               </div>
               <input
                 className="input"
                 value={confirmWord}
                 onChange={(e) => setConfirmWord(e.target.value)}
                 placeholder="SUPPRIMER"
-                style={{ fontWeight: 700, textTransform: 'uppercase' }}
               />
-              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12, gap: 8 }}>
-                <button className="btn btn-outline" onClick={() => setConfirm(null)}>Annuler</button>
-                <button 
-                  className="btn btn-danger" 
-                  disabled={confirmWord !== 'SUPPRIMER'} 
-                  onClick={runConfirm}
-                >
-                  🗑️ Supprimer définitif
-                </button>
-              </div>
-            </div>
+            </>
           )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+            <button className="btn btn-outline" onClick={() => setConfirm(null)}>Annuler</button>
+            <button className={confirm.type === 'hard' ? 'btn btn-danger' : 'btn'} onClick={runConfirm}>
+              Confirmer
+            </button>
+          </div>
         </Modal>
       )}
     </div>
