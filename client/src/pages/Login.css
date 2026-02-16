@@ -5,7 +5,7 @@
   box-sizing: border-box;
   font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
-
+/* client/public/ui/slides/fichiers.png */
 .loginExact {
   min-height: 100vh;
   display: flex;
@@ -234,7 +234,7 @@
 .loginExact__leftContent {
   position: absolute;
   inset: 0;
-  padding: 56px 50px;
+  padding: 76px 50px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -862,5 +862,77 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+}
+
+
+/* ✅ Surcouche pour lisibilité du texte sur n'importe quelle photo */
+.loginExact__leftMedia::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,0.22) 0%,
+    rgba(0,0,0,0.48) 60%,
+    rgba(0,0,0,0.62) 100%
+  );
+}
+.loginExact__heroSub{
+  margin: 14px 0 0;
+  max-width: 520px;
+  font-size: 16px;
+  line-height: 1.35;
+  color: rgba(255,255,255,0.92);
+  font-weight: 600;
+  text-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+/* Social — layout propre (icônes + lien) */
+.loginExact__social{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loginExact__socialRow{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.loginExact__socialLink{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  text-decoration: none;
+
+  color: rgba(255,255,255,0.92);
+  font-size: 13px;
+  font-weight: 600;
+
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.loginExact__socialLink:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,0.16);
+}
+
+/* Mobile : le lien passe en dessous */
+@media (max-width: 520px){
+  .loginExact__socialRow{
+    align-items: flex-start;
+  }
+  .loginExact__socialLink{
+    width: 100%;
   }
 }
