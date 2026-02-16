@@ -351,13 +351,15 @@ exports.softDelete = asyncHandler(async (req, res) => {
   const { rows } = await pool.query(
     `
     UPDATE car_logbooks
-    SET deleted_at = NOW()
+    SET deleted_at = NOW(), deleted_by = $2
     WHERE id = $1 AND deleted_at IS NULL
     RETURNING id
     `,
-    [id]
+    [id, req.user.id]
   );
 
   if (!rows[0]) return res.status(404).json({ error: 'Introuvable' });
   res.json({ ok: true });
 });
+
+

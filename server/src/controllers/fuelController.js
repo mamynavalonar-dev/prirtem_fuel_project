@@ -159,8 +159,8 @@ async function softDeleteVehicleFuel(req, res) {
   const { id } = req.params;
   
   const { rows } = await pool.query(
-    'UPDATE vehicle_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
-    [id]
+    'UPDATE vehicle_fuel_logs SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL RETURNING id',
+    [id, req.user.id]
   );
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -219,8 +219,8 @@ async function softDeleteGeneratorFuel(req, res) {
   const { id } = req.params;
   
   const { rows } = await pool.query(
-    'UPDATE generator_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
-    [id]
+    'UPDATE generator_fuel_logs SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL RETURNING id',
+    [id, req.user.id]
   );
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -280,8 +280,8 @@ async function softDeleteOtherFuel(req, res) {
   const { id } = req.params;
   
   const { rows } = await pool.query(
-    'UPDATE other_fuel_logs SET deleted_at=now() WHERE id=$1 AND deleted_at IS NULL RETURNING id',
-    [id]
+    'UPDATE other_fuel_logs SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL RETURNING id',
+    [id, req.user.id]
   );
   if (!rows[0]) {
     return res.status(404).json({ error: 'NOT_FOUND' });
@@ -604,3 +604,4 @@ module.exports = {
   updateOtherFuel,
   softDeleteOtherFuel
 };
+

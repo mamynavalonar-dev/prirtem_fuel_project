@@ -25,8 +25,14 @@ function formatTimestamp(ts) {
   return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 }
 
+function toMs(ts) {
+  const d = new Date(ts);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 export default function NotificationBell() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
 
   const [notifications, setNotifications] = useState([]);
@@ -34,62 +40,118 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
 
   const [toasts, setToasts] = useState([]);
-  const prevCountRef = useRef(0);
   const dropdownRef = useRef(null);
 
-  async function fetchNotifications() {
-    if (!token) return;
-    try {
-      const data = await apiFetch('/api/notifications', { token });
-      const newNotifs = data.notifications || [];
-      const newCount = Number(data.count || 0);
+  // ✅ Lecture mémorisée par user
+  const readKey = useMemo(() => {
+    const uid = user?.id ? String(user.id) : '';
+    return uid ? `prirtem_notif_lastRead_${uid}` : '';
+  }, [user?.id]);
 
-      setNotifications(newNotifs);
-      setUnread(newCount);
+  const lastReadMsRef = useRef(0);
+  const hasFetchedRef = useRef(false);
+  const prevUnreadRef = useRef(0);
 
-      const prev = prevCountRef.current;
-      if (prev > 0 && newCount > prev) {
-        const delta = newCount - prev;
-        pushToast({
-          title: 'Nouvelle notification',
-          message: `🔔 ${delta} nouvelle(s) notification(s)`,
-          severity: 'info'
-        });
-      }
-      prevCountRef.current = newCount;
-    } catch (e) {
-      console.error('Notifications: fetch failed', e);
+  function loadLastRead() {
+    if (!readKey) {
+      lastReadMsRef.current = 0;
+      return 0;
     }
+    try {
+      const raw = localStorage.getItem(readKey);
+      const ms = raw ? Number(raw) : 0;
+      lastReadMsRef.current = Number.isFinite(ms) ? ms : 0;
+      return lastReadMsRef.current;
+    } catch {
+      lastReadMsRef.current = 0;
+      return 0;
+    }
+  }
+
+  function saveLastRead(ms) {
+    lastReadMsRef.current = ms;
+    if (!readKey) return;
+    try {
+      localStorage.setItem(readKey, String(ms));
+    } catch {
+      // ignore
+    }
+  }
+
+  function markAllRead() {
+    const nowMs = Date.now();
+    saveLastRead(nowMs);
+    // recalcul immédiat
+    setUnread(0);
+  }
+
+  function computeUnreadCount(list) {
+    const cut = lastReadMsRef.current || 0;
+    return (list || []).filter((n) => toMs(n.timestamp) > cut).length;
   }
 
   function pushToast(t) {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const toast = { id, timestamp: new Date().toISOString(), ...t };
     setToasts((prev) => [toast, ...prev].slice(0, 4));
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((x) => x.id !== id));
-    }, 3500);
+    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 3500);
   }
 
+  async function fetchNotifications() {
+    if (!token) return;
+    try {
+      const data = await apiFetch('/api/notifications', { token });
+      const newNotifs = data.notifications || [];
+
+      setNotifications(newNotifs);
+
+      const newUnread = computeUnreadCount(newNotifs);
+      setUnread(newUnread);
+
+      // Toast uniquement après 1er fetch
+      if (hasFetchedRef.current) {
+        const prevUnread = prevUnreadRef.current;
+        if (newUnread > prevUnread) {
+          const delta = newUnread - prevUnread;
+          pushToast({
+            title: 'Nouvelle notification',
+            message: `🔔 ${delta} nouvelle(s) notification(s)`,
+            severity: 'info'
+          });
+        }
+      }
+      hasFetchedRef.current = true;
+      prevUnreadRef.current = newUnread;
+    } catch (e) {
+      console.error('Notifications: fetch failed', e);
+    }
+  }
+
+  // Init / Poll
   useEffect(() => {
     if (!token) {
       setNotifications([]);
       setUnread(0);
       setOpen(false);
-      prevCountRef.current = 0;
+      hasFetchedRef.current = false;
+      prevUnreadRef.current = 0;
+      lastReadMsRef.current = 0;
       return;
     }
+
+    // charge lastRead quand user dispo
+    loadLastRead();
 
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 10000);
     return () => clearInterval(interval);
-  }, [token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, readKey]);
 
+  // close on outside click
   useEffect(() => {
     const onDown = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -98,6 +160,12 @@ export default function NotificationBell() {
   const latest = useMemo(() => notifications.slice(0, 10), [notifications]);
 
   function handleClickNotif(n) {
+    // En pratique, ouvrir la cloche marque déjà tout lu.
+    // Mais on garde un recalcul propre au clic.
+    const nowMs = Date.now();
+    saveLastRead(nowMs);
+    setUnread(0);
+
     setOpen(false);
     if (n?.link) navigate(n.link);
   }
@@ -127,7 +195,13 @@ export default function NotificationBell() {
           onClick={() => {
             const next = !open;
             setOpen(next);
-            if (next) fetchNotifications();
+
+            if (next) {
+              // ✅ quand tu ouvres : tu as "vu" => badge doit disparaître
+              markAllRead();
+              // et on rafraîchit
+              fetchNotifications();
+            }
           }}
           aria-label="Notifications"
           style={{ position: 'relative' }}
@@ -179,11 +253,20 @@ export default function NotificationBell() {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                gap: 10,
                 borderBottom: '1px solid var(--border)'
               }}
             >
               <div style={{ fontWeight: 900, fontSize: 13, color: 'var(--text)' }}>Notifications</div>
-              <div className="badge badge-info">{unread} non lue(s)</div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {unread > 0 && (
+                  <button className="btn btn-secondary btn-sm" onClick={markAllRead}>
+                    Marquer tout lu
+                  </button>
+                )}
+                <div className="badge badge-info">{unread} non lue(s)</div>
+              </div>
             </div>
 
             <div style={{ maxHeight: 420, overflow: 'auto' }}>
@@ -192,48 +275,60 @@ export default function NotificationBell() {
                   Rien pour le moment.
                 </div>
               ) : (
-                latest.map((n) => (
-                  <button
-                    key={n.id}
-                    onClick={() => handleClickNotif(n)}
-                    className="btn"
-                    style={{
-                      width: '100%',
-                      background: 'transparent',
-                      color: 'inherit',
-                      border: 'none',
-                      borderBottom: '1px solid rgba(255,255,255,.06)',
-                      textAlign: 'left',
-                      padding: 12,
-                      borderRadius: 0,
-                      justifyContent: 'flex-start'
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: 10, width: '100%' }}>
-                      <div style={{ width: 10, display: 'flex', justifyContent: 'center' }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 99, background: severityToDot(n.severity) }} />
-                      </div>
+                latest.map((n) => {
+                  const isUnread = toMs(n.timestamp) > (lastReadMsRef.current || 0);
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontWeight: 900,
-                            fontSize: 13,
-                            marginBottom: 3,
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            color: 'var(--text)'
-                          }}
-                        >
-                          {n.title}
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => handleClickNotif(n)}
+                      className="btn"
+                      style={{
+                        width: '100%',
+                        background: isUnread ? 'rgba(59,130,246,.06)' : 'transparent',
+                        color: 'inherit',
+                        border: 'none',
+                        borderBottom: '1px solid rgba(255,255,255,.06)',
+                        textAlign: 'left',
+                        padding: 12,
+                        borderRadius: 0,
+                        justifyContent: 'flex-start'
+                      }}
+                    >
+                      <div style={{ display: 'flex', gap: 10, width: '100%' }}>
+                        <div style={{ width: 10, display: 'flex', justifyContent: 'center' }}>
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 99,
+                              background: severityToDot(n.severity),
+                              boxShadow: isUnread ? '0 0 0 2px rgba(59,130,246,.12)' : 'none'
+                            }}
+                          />
                         </div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>{n.message}</div>
-                        <div style={{ fontSize: 11, color: 'rgba(229,231,235,.55)' }}>{formatTimestamp(n.timestamp)}</div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontWeight: 900,
+                              fontSize: 13,
+                              marginBottom: 3,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              color: 'var(--text)'
+                            }}
+                          >
+                            {n.title}
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>{n.message}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(229,231,235,.55)' }}>{formatTimestamp(n.timestamp)}</div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))
+                    </button>
+                  );
+                })
               )}
             </div>
           </div>

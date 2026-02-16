@@ -226,7 +226,7 @@ async function updateVehicle(req, res) {
 
 async function deleteVehicle(req, res) {
   const { id } = req.params;
-  await pool.query(`UPDATE vehicles SET deleted_at=now() WHERE id=$1`, [id]);
+  await pool.query(`UPDATE vehicles SET deleted_at=now(), deleted_by=$2 WHERE id=$1`, [id, req.user?.id || null]);
 
   // (Optionnel) Marque aussi les affectations liées comme supprimées logiquement
   await pool.query(
@@ -436,7 +436,7 @@ async function updateDriver(req, res) {
 
 async function deleteDriver(req, res) {
   const { id } = req.params;
-  await pool.query(`UPDATE drivers SET deleted_at=now() WHERE id=$1`, [id]);
+  await pool.query(`UPDATE drivers SET deleted_at=now(), deleted_by=$2 WHERE id=$1`, [id, req.user?.id || null]);
 
   await pool.query(
     `UPDATE driver_vehicle_assignments SET deleted_at=now() WHERE driver_id=$1 AND deleted_at IS NULL`,
@@ -590,3 +590,5 @@ module.exports = {
   createAssignment,
   unassignVehicle
 };
+
+

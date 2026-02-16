@@ -161,13 +161,71 @@ async function runMigrations() {
     END $$;
   `);
 
+
+  // =====================================================================
+  // ✅ TRASH AUDIT: deleted_at + deleted_by (qui a supprimé ?)
+  // =====================================================================
+
+  // META
+  await pool.query(`
+    ALTER TABLE vehicles
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vehicles_deleted_by ON vehicles(deleted_by);`);
+
+  await pool.query(`
+    ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_drivers_deleted_by ON drivers(deleted_by);`);
+
+  // REQUESTS
+  await pool.query(`
+    ALTER TABLE fuel_requests
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_fr_deleted_by ON fuel_requests(deleted_by);`);
+
+  await pool.query(`
+    ALTER TABLE car_requests
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cr_deleted_by ON car_requests(deleted_by);`);
+
+  // FUEL LOGS (certains anciens schémas n'avaient pas la corbeille)
+  await pool.query(`
+    ALTER TABLE vehicle_fuel_logs
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vfl_deleted_at ON vehicle_fuel_logs(deleted_at);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_vfl_deleted_by ON vehicle_fuel_logs(deleted_by);`);
+
+  await pool.query(`
+    ALTER TABLE generator_fuel_logs
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_gfl_deleted_at ON generator_fuel_logs(deleted_at);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_gfl_deleted_by ON generator_fuel_logs(deleted_by);`);
+
+  await pool.query(`
+    ALTER TABLE other_fuel_logs
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ofl_deleted_at ON other_fuel_logs(deleted_at);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ofl_deleted_by ON other_fuel_logs(deleted_by);`);
+
+
   // =====================================================================
   // ✅ LOGBOOKS: logbook_type + deleted_at (corbeille)
   // =====================================================================
   await pool.query(`
     ALTER TABLE car_logbooks
       ADD COLUMN IF NOT EXISTS logbook_type TEXT NULL,
-      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL;
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ NULL,
+      ADD COLUMN IF NOT EXISTS deleted_by UUID NULL REFERENCES users(id);
   `);
 
   await pool.query(`
@@ -200,6 +258,12 @@ async function runMigrations() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_car_logbooks_deleted_at ON car_logbooks(deleted_at);
   `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_car_logbooks_deleted_by ON car_logbooks(deleted_by);
+  `);
 }
 
 module.exports = { runMigrations };
+
+
