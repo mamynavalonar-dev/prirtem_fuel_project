@@ -19,6 +19,24 @@ const LEFT_SLIDES = [
   "/ui/login/slides/slide-2.png",
   "/ui/login/slides/slide-3.png",
 ];
+const SLIDE_COPY = [
+  {
+    kicker: "Traçabilité",
+    title: "Pilotez vos demandes en toute traçabilité",
+    subtitle: "Carburant & flotte : tout est enregistré, clair, consultable.",
+  },
+  {
+    kicker: "Workflow",
+    title: "Validation simple, décisions rapides",
+    subtitle: "Demandeur → Logistique → RAF : un flux maîtrisé.",
+  },
+  {
+    kicker: "Suivi & impression",
+    title: "Suivi + impression A5, prêt à signer",
+    subtitle: "Documents propres, lisibles, conformes aux formulaires.",
+  },
+];
+
 
 /* ✅ Logos topbar (dans client/public/ui/login/logos/) */
 const TOPBAR_LOGOS = [
@@ -217,6 +235,9 @@ export default function Login() {
   }, []);
 
   const activeDot = realCount >= 2 ? ((idx - 1 + realCount) % realCount) : 0;
+
+  const activeCopy = SLIDE_COPY[activeDot] || SLIDE_COPY[0];
+
 
   useEffect(() => {
     const savedRemember = localStorage.getItem("rememberLogin");
@@ -550,31 +571,48 @@ useEffect(() => {
 
             <div className="loginExact__leftContent">
               <div>
-                <div className="loginExact__kicker">Welcome Back</div>
-                <h2 className="loginExact__heroTitle">
-                  Hello Developer,
-                  <br />
-                  Sign In To Get Started
-                </h2>
+                <div className="loginExact__kicker">{activeCopy.kicker}</div>
+                    <h2 className="loginExact__heroTitle">
+                      {activeCopy.title}
+                    </h2>
+
+                    <p className="loginExact__heroSub">
+                      {activeCopy.subtitle}
+                    </p>
               </div>
 
               <div className="loginExact__social">
-                <div className="loginExact__socialLabel">Our Social Media</div>
-                <div className="loginExact__socialIcons">
-                  <a href="#" aria-label="Facebook">
-                    <IconFacebook />
-                  </a>
-                  <a href="#" aria-label="Instagram">
-                    <IconInstagram />
-                  </a>
-                  <a href="#" aria-label="X">
-                    <IconX />
-                  </a>
-                  <a href="#" aria-label="Github">
-                    <IconGitHub />
-                  </a>
-                </div>
-              </div>
+                    <div className="loginExact__socialLabel">Nos réseaux sociaux</div>
+
+                    <div className="loginExact__socialRow">
+                      <div className="loginExact__socialIcons">
+                        <a
+                          href="https://web.facebook.com/PRIRTEM/?locale=fr_FR&_rdc=1&_rdr"
+                          aria-label="Facebook PRIRTEM"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <IconFacebook />
+                        </a>
+
+                        {/* Si tu veux plus tard :
+                        <a href="#" aria-label="Instagram"><IconInstagram /></a>
+                        <a href="#" aria-label="X"><IconX /></a>
+                        <a href="#" aria-label="GitHub"><IconGitHub /></a>
+                        */}
+                      </div>
+
+                      <a
+                        className="loginExact__socialLink"
+                        href="https://web.facebook.com/PRIRTEM/?locale=fr_FR&_rdc=1&_rdr"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Accéder à la page Facebook PRIRTEM
+                      </a>
+                    </div>
+                  </div>  
+
             </div>
 
             {realCount >= 2 ? (
@@ -598,7 +636,7 @@ useEffect(() => {
 
             <div className="loginExact__panel">
               <h1 className="loginExact__title">
-                Welcome Back <span className="loginExact__wave">👋</span>
+                Bienvenu <span className="loginExact__wave">👋</span>
               </h1>
 
               <form className="loginExact__form" onSubmit={handleSubmit}>

@@ -88,6 +88,7 @@ html[data-theme="dark"]{
   display: flex;
   flex-direction: column;
   gap: 10px;
+  
 
   margin-top: 40px;
   padding-left: 10px;
@@ -316,4 +317,139 @@ html[data-theme="dark"]{
   .asb-indicator{
     transition: none !important;
   }
+}
+/* ✅ Sidebar: enlever le soulignement des liens (NavLink = <a>) */
+.asb-sidebar .asb-item,
+.asb-sidebar .asb-item:visited,
+.asb-sidebar .asb-item:hover,
+.asb-sidebar .asb-item:focus,
+.asb-sidebar .asb-item:active {
+  text-decoration: none !important;
+}
+
+/* optionnel : éviter que le texte prenne une déco */
+.asb-sidebar .asb-item .asb-link,
+.asb-sidebar .asb-item .asb-text {
+  text-decoration: none !important;
+}
+
+/* ✅ Logo image inside sidebar */
+.asb-logo-img{
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+  display: block;
+}
+
+
+/* ✅ Sidebar fermé : le toggle ne doit pas recouvrir le logo */
+.asb-sidebar:not(.active) .asb-toggle{
+  top: 96px; /* ajuste 88–110 selon ton goût */
+}
+
+/* ✅ Sidebar fermé : centre le logo + enlève le texte (évite la place fantôme) */
+.asb-sidebar:not(.active) .asb-logo{
+  justify-content: center;
+  padding: 0;
+  margin-bottom: 18px;
+}
+
+.asb-sidebar:not(.active) .asb-logo-text{
+  display: none;
+}
+
+
+
+/* =========================
+   Logout button (comme ton design)
+   + suit sidebar (fermé = icône, ouvert = texte)
+   ========================= */
+
+.asb-footer{
+  padding: 8px 10px 12px;
+}
+
+.asb-logoutBtn{
+  --btn-bg: rgba(255,255,255,0.14);
+  --btn-bd: rgba(255,255,255,0.22);
+  --btn-fg: #ffffff;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+
+  width: 45px;              /* fermé = carré */
+  height: 45px;
+
+  border: 1px solid var(--btn-bd);
+  border-radius: 14px;
+  cursor: pointer;
+
+  position: relative;
+  overflow: hidden;
+
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+
+  box-shadow: 2px 2px 10px rgba(0,0,0,0.18);
+  transition: width .3s ease, transform .12s ease, background .15s ease;
+}
+
+/* icône */
+.asb-logoutSign{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width .3s ease, padding-left .3s ease;
+}
+
+.asb-logoutSign svg{
+  width: 18px;
+  height: 18px;
+}
+
+.asb-logoutSign svg path{
+  fill: currentColor;
+}
+
+/* texte (fermé = caché) */
+.asb-logoutText{
+  position: absolute;
+  right: 12px;
+  width: 0%;
+  opacity: 0;
+  white-space: nowrap;
+
+  font-size: 13px;
+  font-weight: 700;
+
+  transition: opacity .3s ease, width .3s ease;
+}
+
+/* ✅ Hover : uniquement quand sidebar est ouvert */
+.asb-sidebar.active .asb-logoutBtn:hover{
+  background: rgba(255,255,255,0.18);
+  transform: translateY(-1px);
+}
+
+/* ✅ Sidebar ouvert : le bouton prend la largeur + texte visible */
+.asb-sidebar.active .asb-logoutBtn{
+  width: calc(100% - 10px);
+}
+
+.asb-sidebar.active .asb-logoutSign{
+  width: 44px;
+  padding-left: 12px;
+  justify-content: flex-start;
+}
+
+.asb-sidebar.active .asb-logoutText{
+  opacity: 1;
+  width: calc(100% - 44px);
+}
+
+/* click */
+.asb-logoutBtn:active{
+  transform: translate(2px, 2px);
 }
