@@ -1,591 +1,471 @@
-// client/src/pages/FuelRequests.jsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '../utils/api.js';
 import { useAuth } from '../auth/AuthContext.jsx';
+import { apiFetch } from '../utils/api.js';
 import Modal from '../components/Modal.jsx';
-
-function fmtAr(n) {
-  try {
-    return new Intl.NumberFormat('fr-FR').format(Number(n || 0)) + ' Ar';
-  } catch {
-    return String(n || 0) + ' Ar';
-  }
-}
-
-const TYPES = [
-  { value: 'SERVICE', label: 'SERVICE' },
-  { value: 'MISSION', label: 'MISSION' }
-];
+import './FuelRequests.css';
 
 function ymdToday() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function fmtPeriod(start, end) {
-  const s = (start || '').slice(0, 10);
-  const e = (end || '').slice(0, 10);
-  if (!s && !e) return '';
-  if (e && s && e !== s) return `${s} → ${e}`;
-  return s || e;
+function fmtAr(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '';
+  return new Intl.NumberFormat('fr-FR').format(v);
+}
+
+function fmtDateFr(d) {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('fr-FR');
+  } catch {
+    return String(d);
+  }
+}
+
+function statusLabel(s) {
+  switch (String(s || '').toUpperCase()) {
+    case 'SUBMITTED': return 'En attente';
+    case 'VERIFIED': return 'Validé (Logistique)';
+    case 'APPROVED': return 'Approuvé (RAF)';
+    case 'REJECTED': return 'Rejeté';
+    case 'CANCELLED': return 'Annulé';
+    default: return String(s || '');
+  }
+}
+
+function statusClass(s) {
+  return String(s || '').toLowerCase();
+}
+
+/* ---- Montant en lettres (FR) ---- */
+function numberToFrWords(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if (n === 0) return 'zéro';
+
+  const units = [
+    '', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf',
+    'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize',
+    'dix-sept', 'dix-huit', 'dix-neuf'
+  ];
+  const tens = ['', '', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante', 'soixante', 'quatre-vingt', 'quatre-vingt'];
+
+  function twoDigitsToFr(x) {
+    if (x < 20) return units[x];
+    const t = Math.floor(x / 10);
+    const u = x % 10;
+
+    if (t === 7 || t === 9) {
+      const base = tens[t];
+      const rest = x - t * 10; // 10..19
+      return base + '-' + twoDigitsToFr(rest);
+    }
+
+    if (t === 8 && u === 0) return 'quatre-vingts';
+    if (u === 0) return tens[t];
+
+    if (u === 1 && t !== 8) return tens[t] + ' et un';
+    return tens[t] + '-' + units[u];
+  }
+
+  function threeDigitsToFr(x) {
+    const c = Math.floor(x / 100);
+    const r = x % 100;
+    let out = '';
+
+    if (c === 1) out = 'cent';
+    else if (c > 1) out = units[c] + ' cent';
+
+    if (c > 0 && r === 0 && c > 1) out += 's';
+    if (r > 0) out += (out ? ' ' : '') + twoDigitsToFr(r);
+
+    return out;
+  }
+
+  function chunkToFr(x, labelSing, labelPlur) {
+    if (x === 0) return '';
+    if (x === 1 && labelSing === 'mille') return 'mille';
+    const base = x === 1 ? 'un' : threeDigitsToFr(x);
+    return base + ' ' + (x === 1 ? labelSing : labelPlur);
+  }
+
+  const milliards = Math.floor(n / 1_000_000_000);
+  n = n % 1_000_000_000;
+  const millions = Math.floor(n / 1_000_000);
+  n = n % 1_000_000;
+  const milliers = Math.floor(n / 1_000);
+  const reste = n % 1_000;
+
+  const parts = [];
+  if (milliards) parts.push(chunkToFr(milliards, 'milliard', 'milliards'));
+  if (millions) parts.push(chunkToFr(millions, 'million', 'millions'));
+  if (milliers) parts.push(chunkToFr(milliers, 'mille', 'mille'));
+  if (reste) parts.push(threeDigitsToFr(reste));
+
+  return parts.filter(Boolean).join(' ');
+}
+
+/* ---- Icons (SVG inline) ---- */
+function IconEye({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function IconPrinter({ size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M7 8V4h10v4" stroke="currentColor" strokeWidth="2" />
+      <path d="M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" stroke="currentColor" strokeWidth="2" />
+      <path d="M7 14h10v6H7z" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
 }
 
 export default function FuelRequests() {
   const { token, user } = useAuth();
-  const role = user?.role;
+  const role = user?.role || '';
+  const canCreate = role === 'DEMANDEUR';
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
 
-  const [form, setForm] = useState(() => {
-    const today = ymdToday();
-    return {
-      request_type: 'SERVICE',
-      objet: '',
-      amount_estimated_ar: 0,
-      amount_estimated_words: '',
-      request_date: today,
-      end_date: today
-    };
+  const [q, setQ] = useState('');
+
+  // Create modal
+  const [createOpen, setCreateOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    request_type: 'SERVICE',
+    request_date: ymdToday(), // Date ticket
+    objet: '',
+    amount_estimated_ar: '',
+    amount_estimated_words: '',
   });
 
-  const [creating, setCreating] = useState(false);
-
-  const [view, setView] = useState(null); // {loading, data}
-  const [editId, setEditId] = useState(null);
-  const [draft, setDraft] = useState(null);
-
-  const canCreate = role === 'DEMANDEUR';
-  const canVerify = ['LOGISTIQUE', 'ADMIN'].includes(role);
-  const canApprove = ['RAF', 'ADMIN'].includes(role);
-  const canSoftDelete = ['LOGISTIQUE', 'ADMIN'].includes(role);
-
-  const columns = useMemo(() => {
-    return ['N°', 'Période', 'Type', 'Objet', 'Montant', 'Statut', 'Actions'];
-  }, []);
+  // Details modal
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsReq, setDetailsReq] = useState(null);
 
   async function load() {
+    if (!token) return;
     setLoading(true);
-    setErr(null);
     try {
-      const d = await apiFetch('/api/requests/fuel', { token });
-      setRequests(d.requests || []);
-    } catch (e) {
-      setErr(String(e.message || e));
+      const data = await apiFetch('/api/requests/fuel', { token });
+      setRequests(Array.isArray(data?.requests) ? data.requests : []);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    load().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
-  const create = async () => {
-    setCreating(true);
-    setErr(null);
+  const filtered = useMemo(() => {
+    const qq = String(q || '').trim().toLowerCase();
+    if (!qq) return requests;
 
+    return requests.filter((r) => {
+      const hay = [
+        r.request_no,
+        r.request_type,
+        r.objet,
+        r.status,
+        r.requester_username,
+        r.request_date,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return hay.includes(qq);
+    });
+  }, [requests, q]);
+
+  function openCreate() {
+    setForm({
+      request_type: 'SERVICE',
+      request_date: ymdToday(),
+      objet: '',
+      amount_estimated_ar: '',
+      amount_estimated_words: '',
+    });
+    setCreateOpen(true);
+  }
+
+  function onChangeAmount(v) {
+    const digits = String(v || '').replace(/\D/g, '');
+    const n = digits ? Number(digits) : 0;
+    const words = digits ? `${numberToFrWords(n)} ariary` : '';
+    setForm((f) => ({
+      ...f,
+      amount_estimated_ar: digits,
+      amount_estimated_words: words,
+    }));
+  }
+
+  async function submitCreate(e) {
+    e.preventDefault();
+    if (!canCreate || !token || busy) return;
+
+    const amount = Number(form.amount_estimated_ar || 0);
+    if (!form.objet.trim()) return alert('Objet requis');
+    if (!form.request_date) return alert('Date ticket requise');
+    if (!Number.isFinite(amount) || amount <= 0) return alert('Montant invalide');
+
+    setBusy(true);
     try {
-      const start = form.request_date;
-      const end = form.end_date || start;
-
-      if (start && end && end < start) {
-        setErr('La date fin ne peut pas être avant la date début.');
-        return;
-      }
-
-      const body = {
-        ...form,
-        request_date: start,
-        end_date: end,
-        amount_estimated_ar: Number(form.amount_estimated_ar || 0)
+      // backend demande end_date >= request_date → on envoie pareil (mais on n’affiche PAS "Période")
+      const payload = {
+        request_type: form.request_type,
+        objet: form.objet.trim(),
+        amount_estimated_ar: Math.floor(amount),
+        amount_estimated_words: form.amount_estimated_words || `${numberToFrWords(amount)} ariary`,
+        request_date: form.request_date,
+        end_date: form.request_date,
       };
 
-      await apiFetch('/api/requests/fuel', { method: 'POST', token, body });
-
-      const today = ymdToday();
-      setForm({
-        request_type: 'SERVICE',
-        objet: '',
-        amount_estimated_ar: 0,
-        amount_estimated_words: '',
-        request_date: today,
-        end_date: today
+      await apiFetch('/api/requests/fuel', {
+        token,
+        method: 'POST',
+        body: payload,
       });
 
+      setCreateOpen(false);
       await load();
-    } catch (e) {
-      setErr(String(e.message || e));
+    } catch (err) {
+      alert(err?.message || 'Erreur création');
     } finally {
-      setCreating(false);
+      setBusy(false);
     }
-  };
+  }
 
-  const openView = async (id) => {
-    setView({ loading: true, data: null });
+  async function openDetails(id) {
+    if (!token) return;
     try {
-      const d = await apiFetch(`/api/requests/fuel/${id}`, { token });
-      setView({ loading: false, data: d.request });
-    } catch (e) {
-      setView({ loading: false, data: null });
-      alert(String(e.message || e));
+      const data = await apiFetch(`/api/requests/fuel/${id}`, { token });
+      setDetailsReq(data?.request || null);
+      setDetailsOpen(true);
+    } catch {
+      alert('Impossible de charger les détails');
     }
-  };
+  }
 
-  const openEdit = (r) => {
-    setEditId(r.id);
-    setDraft({
-      request_date: (r.request_date || '').slice(0, 10),
-      end_date: (r.end_date || r.request_date || '').slice(0, 10),
-      request_type: r.request_type || 'SERVICE',
-      objet: r.objet || '',
-      amount_estimated_ar: Number(r.amount_estimated_ar || 0),
-      amount_estimated_words: r.amount_estimated_words || ''
-    });
-  };
-
-  const cancelEdit = () => {
-    setEditId(null);
-    setDraft(null);
-  };
-
-  const saveEdit = async () => {
-    if (!editId || !draft) return;
-
-    const start = draft.request_date;
-    const end = draft.end_date || start;
-
-    if (start && end && end < start) {
-      alert('La date fin ne peut pas être avant la date début.');
-      return;
-    }
-
-    try {
-      const body = {
-        request_date: start,
-        end_date: end,
-        request_type: draft.request_type,
-        objet: draft.objet,
-        amount_estimated_ar: Number(draft.amount_estimated_ar || 0),
-        amount_estimated_words: draft.amount_estimated_words
-      };
-      await apiFetch(`/api/requests/fuel/${editId}`, { method: 'PUT', token, body });
-      cancelEdit();
-      await load();
-    } catch (e) {
-      alert(String(e.message || e));
-    }
-  };
-
-  const softDelete = async (id) => {
-    const ok = confirm('Déplacer dans Corbeille ?');
-    if (!ok) return;
-    try {
-      await apiFetch(`/api/requests/fuel/${id}`, { method: 'DELETE', token });
-      await load();
-      alert('OK ✅ Déplacé dans Corbeille');
-    } catch (e) {
-      alert(String(e.message || e));
-    }
-  };
-
-  const submit = async (id) => {
-    await apiFetch(`/api/requests/fuel/${id}/submit`, { method: 'PATCH', token });
-    await load();
-  };
-  const verify = async (id) => {
-    await apiFetch(`/api/requests/fuel/${id}/verify`, { method: 'PATCH', token });
-    await load();
-  };
-  const approve = async (id) => {
-    await apiFetch(`/api/requests/fuel/${id}/approve`, { method: 'PATCH', token });
-    await load();
-  };
-  const reject = async (id) => {
-    const reason = prompt('Motif de rejet (optionnel) :') || '';
-    await apiFetch(`/api/requests/fuel/${id}/reject`, { method: 'PATCH', token, body: { reason } });
-    await load();
-  };
-
-  const cancelRequest = async (id) => {
-    const reason = prompt("Motif d'annulation (optionnel) :") || '';
-    const ok = confirm('Annuler cette demande ?');
-    if (!ok) return;
-    try {
-      await apiFetch(`/api/requests/fuel/${id}/cancel`, { method: 'POST', token, body: { reason } });
-      await load();
-    } catch (e) {
-      alert(String(e.message || e));
-    }
-  };
-
-  const badgeClass = (status) => {
-    const s = String(status || '').toUpperCase();
-    if (s === 'APPROVED') return 'badge badge-ok';
-    if (s === 'REJECTED') return 'badge badge-bad';
-    if (s === 'CANCELLED') return 'badge';
-    return 'badge';
-  };
+  function openPrint(id) {
+    window.open(`/print/fuel/${id}`, '_blank', 'noopener,noreferrer');
+  }
 
   return (
-    <div>
-      <h1 style={{ marginTop: 0 }}>Demande de carburant</h1>
-
-      {canCreate && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row">
-            <div className="field" style={{ minWidth: 160 }}>
-              <div className="label">Date début</div>
-              <input
-                className="input"
-                type="date"
-                value={form.request_date}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  const nextEnd = !form.end_date || form.end_date < v ? v : form.end_date;
-                  setForm({ ...form, request_date: v, end_date: nextEnd });
-                }}
-              />
-            </div>
-
-            <div className="field" style={{ minWidth: 160 }}>
-              <div className="label">Date fin</div>
-              <input
-                className="input"
-                type="date"
-                value={form.end_date}
-                min={form.request_date}
-                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-              />
-            </div>
-
-            <div className="field" style={{ minWidth: 160 }}>
-              <div className="label">Type</div>
-              <select
-                className="input"
-                value={form.request_type}
-                onChange={(e) => setForm({ ...form, request_type: e.target.value })}
-              >
-                {TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="field" style={{ flex: 1 }}>
-              <div className="label">Objet</div>
-              <input
-                className="input"
-                value={form.objet}
-                onChange={(e) => setForm({ ...form, objet: e.target.value })}
-                placeholder="Objet..."
-              />
-            </div>
+    <div className="fuelPage">
+      <div className="fuelCard">
+        <div className="fuelHeaderRow">
+          <div>
+            <div className="fuelTitle">Demandes de carburant</div>
+            <div className="fuelSubTitle">Création + suivi + impression (A5 paysage)</div>
           </div>
-
-          <div className="row">
-            <div className="field" style={{ minWidth: 200 }}>
-              <div className="label">Montant prévisionnel (Ar)</div>
-              <input
-                className="input"
-                type="number"
-                value={form.amount_estimated_ar}
-                onChange={(e) => setForm({ ...form, amount_estimated_ar: e.target.value })}
-              />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <div className="label">Montant (en lettre)</div>
-              <input
-                className="input"
-                value={form.amount_estimated_words}
-                onChange={(e) => setForm({ ...form, amount_estimated_words: e.target.value })}
-                placeholder="..."
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={create} disabled={creating}>
-              Créer (DRAFT)
-            </button>
-          </div>
-
-          {err && <div className="muted" style={{ color: '#b91c1c', marginTop: 8 }}>{err}</div>}
         </div>
-      )}
 
-      {!canCreate && err && <div className="muted" style={{ color: '#b91c1c' }}>{err}</div>}
+        {/* ✅ Rechercher ENTRE sous-titre et tableau */}
+        <div className="fuelFilters">
+          <div className="fuelSearch">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Rechercher (N°, objet, type...)"
+            />
+          </div>
 
-      <div style={{ overflow: 'auto' }}>
-        <table className="table">
-          <thead>
-            <tr>
-              {columns.map((c) => (
-                <th key={c}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+          {canCreate ? (
+            <button className="fuelPrimaryBtn" onClick={openCreate} type="button">
+              + Nouvelle demande
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
+
+        <div className="fuelTableWrap">
+          <table className="fuelTable">
+            <thead>
               <tr>
-                <td colSpan={columns.length} className="muted">
-                  Chargement...
-                </td>
+                <th>N°</th>
+                <th>Date ticket</th>
+                <th>Type</th>
+                <th>Objet</th>
+                <th style={{ textAlign: 'right' }}>Montant (Ar)</th>
+                <th>Statut</th>
+                <th style={{ width: 110, textAlign: 'center' }}>Actions</th>
               </tr>
-            ) : requests.length ? (
-              requests.map((r) => {
-                const isEditing = editId === r.id;
+            </thead>
 
-                const canEditRow =
-                  (role === 'DEMANDEUR' && r.status && ['DRAFT', 'REJECTED'].includes(r.status)) ||
-                  (['ADMIN', 'LOGISTIQUE'].includes(role) &&
-                    r.status &&
-                    ['DRAFT', 'REJECTED', 'SUBMITTED', 'VERIFIED'].includes(r.status));
-
-                return (
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="fuelEmpty">Chargement…</td>
+                </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="fuelEmpty">Aucune demande</td>
+                </tr>
+              ) : (
+                filtered.map((r) => (
                   <tr key={r.id}>
+                    <td className="cellStrong">{r.request_no}</td>
+                    <td>{fmtDateFr(r.request_date)}</td>
+                    <td>{r.request_type}</td>
+                    <td className="cellObjet">{r.objet}</td>
+                    <td style={{ textAlign: 'right' }} className="cellStrong">{fmtAr(r.amount_estimated_ar)}</td>
                     <td>
-                      <b>{r.request_no}</b>
+                      <span className={`statusPill status-${statusClass(r.status)}`}>
+                        {statusLabel(r.status)}
+                      </span>
                     </td>
-
-                    <td>
-                      {isEditing ? (
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <input
-                            className="input"
-                            type="date"
-                            value={draft?.request_date || ''}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              const nextEnd = !draft?.end_date || draft.end_date < v ? v : draft.end_date;
-                              setDraft({ ...draft, request_date: v, end_date: nextEnd });
-                            }}
-                            style={{ minWidth: 150 }}
-                          />
-                          <span className="muted">→</span>
-                          <input
-                            className="input"
-                            type="date"
-                            value={draft?.end_date || draft?.request_date || ''}
-                            min={draft?.request_date || ''}
-                            onChange={(e) => setDraft({ ...draft, end_date: e.target.value })}
-                            style={{ minWidth: 150 }}
-                          />
-                        </div>
-                      ) : (
-                        fmtPeriod(r.request_date, r.end_date || r.request_date)
-                      )}
-                    </td>
-
-                    <td>
-                      {isEditing ? (
-                        <select
-                          className="input"
-                          value={draft?.request_type || 'SERVICE'}
-                          onChange={(e) => setDraft({ ...draft, request_type: e.target.value })}
+                    <td style={{ textAlign: 'center' }}>
+                      <div className="cellActions">
+                        {/* ✅ icône au lieu de "Détails" */}
+                        <button
+                          className="iconBtn"
+                          title="Détails"
+                          aria-label="Détails"
+                          type="button"
+                          onClick={() => openDetails(r.id)}
                         >
-                          {TYPES.map((t) => (
-                            <option key={t.value} value={t.value}>
-                              {t.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        r.request_type || ''
-                      )}
-                    </td>
-
-                    <td>
-                      {isEditing ? (
-                        <input
-                          className="input"
-                          value={draft?.objet || ''}
-                          onChange={(e) => setDraft({ ...draft, objet: e.target.value })}
-                        />
-                      ) : (
-                        r.objet || ''
-                      )}
-                    </td>
-
-                    <td>
-                      {isEditing ? (
-                        <input
-                          className="input"
-                          type="number"
-                          value={draft?.amount_estimated_ar ?? 0}
-                          onChange={(e) => setDraft({ ...draft, amount_estimated_ar: e.target.value })}
-                        />
-                      ) : (
-                        fmtAr(r.amount_estimated_ar)
-                      )}
-                    </td>
-
-                    <td>
-                      <span className={badgeClass(r.status)}>{r.status}</span>
-                    </td>
-
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-outline btn-sm" onClick={() => openView(r.id)}>
-                        Voir
-                      </button>
-                      <span style={{ display: 'inline-block', width: 6 }} />
-
-                      {isEditing ? (
-                        <>
-                          <button className="btn btn-sm" onClick={saveEdit}>
-                            Valider
-                          </button>
-                          <span style={{ display: 'inline-block', width: 6 }} />
-                          <button className="btn btn-outline btn-sm" onClick={cancelEdit}>
-                            Annuler
-                          </button>
-                          <span style={{ display: 'inline-block', width: 6 }} />
-                        </>
-                      ) : (
-                        canEditRow && (
-                          <>
-                            <button className="btn btn-outline btn-sm" onClick={() => openEdit(r)}>
-                              Modifier
-                            </button>
-                            <span style={{ display: 'inline-block', width: 6 }} />
-                          </>
-                        )
-                      )}
-
-                      {canSoftDelete && (
-                        <>
-                          <button className="btn btn-danger btn-sm" onClick={() => softDelete(r.id)}>
-                            Corbeille
-                          </button>
-                          <span style={{ display: 'inline-block', width: 6 }} />
-                        </>
-                      )}
-
-                      {role === 'DEMANDEUR' &&
-                        ['DRAFT', 'SUBMITTED', 'VERIFIED', 'REJECTED'].includes(r.status) && (
-                          <>
-                            <button className="btn btn-outline btn-sm" onClick={() => cancelRequest(r.id)}>
-                              Annuler
-                            </button>
-                            <span style={{ display: 'inline-block', width: 8 }} />
-                          </>
-                        )}
-
-                      <a
-                        className="btn btn-outline btn-sm"
-                        href={`/print/fuel/${r.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Imprimer
-                      </a>
-
-                      {/* Workflow actions */}
-                      <span style={{ display: 'inline-block', width: 10 }} />
-                      {role === 'DEMANDEUR' && ['DRAFT', 'REJECTED'].includes(r.status) && (
-                        <button className="btn btn-sm" onClick={() => submit(r.id)}>
-                          Envoyer
+                          <IconEye />
                         </button>
-                      )}
 
-                      {canVerify && r.status === 'SUBMITTED' && (
-                        <button className="btn btn-sm" onClick={() => verify(r.id)}>
-                          Vérifier (Logistique)
+                        {/* ✅ icône au lieu de "Imprimer" */}
+                        <button
+                          className="iconBtn"
+                          title="Imprimer"
+                          aria-label="Imprimer"
+                          type="button"
+                          onClick={() => openPrint(r.id)}
+                        >
+                          <IconPrinter />
                         </button>
-                      )}
-
-                      {canApprove && r.status === 'VERIFIED' && (
-                        <>
-                          <button className="btn btn-sm" onClick={() => approve(r.id)}>
-                            Visa RAF
-                          </button>
-                          <span style={{ display: 'inline-block', width: 6 }} />
-                          <button className="btn btn-outline btn-sm" onClick={() => reject(r.id)}>
-                            Rejeter
-                          </button>
-                        </>
-                      )}
+                      </div>
                     </td>
                   </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={columns.length} className="muted">
-                  Aucune demande.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {view && (
-        <Modal title="Détail demande carburant" onClose={() => setView(null)} width={760}>
-          {view.loading ? (
-            <div className="muted">Chargement...</div>
-          ) : view.data ? (
-            <div>
-              <div className="row" style={{ gap: 14 }}>
-                <div className="card" style={{ flex: 1 }}>
-                  <div className="muted">N°</div>
-                  <div style={{ fontWeight: 800 }}>{view.data.request_no}</div>
-                </div>
-                <div className="card" style={{ flex: 1 }}>
-                  <div className="muted">Statut</div>
-                  <div style={{ fontWeight: 800 }}>{view.data.status}</div>
-                </div>
+      {/* ✅ MODAL CREATION (plus de formulaire en permanence) */}
+      {createOpen && (
+        <Modal title="Nouvelle demande de carburant" onClose={() => setCreateOpen(false)} width={840}>
+          <form onSubmit={submitCreate}>
+            <div className="fuelCreateGrid">
+              <div className="field">
+                <label>Date ticket</label>
+                <input
+                  type="date"
+                  value={form.request_date}
+                  onChange={(e) => setForm((f) => ({ ...f, request_date: e.target.value }))}
+                  data-autofocus="true"
+                />
               </div>
 
-              <div className="card" style={{ marginTop: 10 }}>
-                <div className="row">
-                  <div style={{ flex: 1 }}>
-                    <div className="muted">Période</div>
-                    <div>{fmtPeriod(view.data.request_date, view.data.end_date || view.data.request_date)}</div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="muted">Type</div>
-                    <div>{view.data.request_type}</div>
-                  </div>
-                </div>
+              <div className="field">
+                <label>Type</label>
+                <select
+                  value={form.request_type}
+                  onChange={(e) => setForm((f) => ({ ...f, request_type: e.target.value }))}
+                >
+                  <option value="SERVICE">SERVICE</option>
+                  <option value="MISSION">MISSION</option>
+                </select>
+              </div>
 
-                <div style={{ marginTop: 8 }}>
-                  <div className="muted">Objet</div>
-                  <div>{view.data.objet}</div>
-                </div>
+              <div className="field">
+                <label>Montant prévisionnel (Ar)</label>
+                <input
+                  value={form.amount_estimated_ar}
+                  onChange={(e) => onChangeAmount(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="ex: 200000"
+                />
+              </div>
 
-                <div className="row" style={{ marginTop: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div className="muted">Montant (chiffre)</div>
-                    <div>{fmtAr(view.data.amount_estimated_ar)}</div>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div className="muted">Montant (lettre)</div>
-                    <div>{view.data.amount_estimated_words || ''}</div>
-                  </div>
-                </div>
+              <div className="field fieldFull">
+                <label>Objet</label>
+                <input
+                  value={form.objet}
+                  onChange={(e) => setForm((f) => ({ ...f, objet: e.target.value }))}
+                  placeholder="ex: Demande de carburant …"
+                />
+              </div>
 
-                {view.data.reject_reason && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="muted">Motif rejet</div>
-                    <div style={{ color: '#b91c1c' }}>{view.data.reject_reason}</div>
-                  </div>
-                )}
-
-                {view.data.cancel_reason && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="muted">Motif annulation</div>
-                    <div style={{ color: '#6b7280' }}>{view.data.cancel_reason}</div>
-                  </div>
-                )}
+              <div className="field fieldWords">
+                <label>Montant (en lettre)</label>
+                <input value={form.amount_estimated_words} readOnly placeholder="(auto)" />
               </div>
             </div>
-          ) : (
-            <div className="muted">Introuvable.</div>
-          )}
+
+            <div className="fuelActions">
+              <button className="fuelPrimaryBtn" type="submit" disabled={busy}>
+                {busy ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ✅ MODAL DETAILS : enlever le bouton "Fermer" du bas (il reste Fermer en haut du Modal) */}
+      {detailsOpen && detailsReq && (
+        <Modal
+          title={`Détails — ${detailsReq.request_no}`}
+          onClose={() => { setDetailsOpen(false); setDetailsReq(null); }}
+          width={860}
+        >
+          <div className="fuelModalGrid">
+            <div>
+              <div className="fuelModalLabel">Type</div>
+              <div className="fuelModalValue">{detailsReq.request_type}</div>
+            </div>
+
+            <div>
+              <div className="fuelModalLabel">Date du ticket</div>
+              <div className="fuelModalValue">{fmtDateFr(detailsReq.request_date)}</div>
+            </div>
+
+            <div className="fuelModalSpan">
+              <div className="fuelModalLabel">Objet</div>
+              <div className="fuelModalValue">{detailsReq.objet}</div>
+            </div>
+
+            <div>
+              <div className="fuelModalLabel">Montant (Ar)</div>
+              <div className="fuelModalValue">{fmtAr(detailsReq.amount_estimated_ar)}</div>
+            </div>
+
+            <div>
+              <div className="fuelModalLabel">Montant (en lettre)</div>
+              <div className="fuelModalValue">{detailsReq.amount_estimated_words}</div>
+            </div>
+
+            <div>
+              <div className="fuelModalLabel">Statut</div>
+              <div className="fuelModalValue">
+                <span className={`statusPill status-${statusClass(detailsReq.status)}`}>
+                  {statusLabel(detailsReq.status)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="fuelModalActions">
+            <button className="fuelPrimaryBtn" type="button" onClick={() => openPrint(detailsReq.id)}>
+              Imprimer
+            </button>
+          </div>
         </Modal>
       )}
     </div>

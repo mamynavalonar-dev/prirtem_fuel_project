@@ -30,17 +30,29 @@ async function list(req, res) {
   const role = req.user.role;
   const userId = req.user.id;
 
+  // optional: ?status=SUBMITTED or ?status=SUBMITTED,VERIFIED
+  const statusParam = String(req.query.status || '').trim();
+  const statuses = statusParam
+    ? statusParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+    : [];
+
   let sql = `SELECT fr.*,
                     u.username AS requester_username
              FROM fuel_requests fr
-             JOIN users u ON u.id=fr.requester_id`;
+             JOIN users u ON u.id=fr.requester_id
+             WHERE fr.deleted_at IS NULL`;
   const params = [];
+
   if (role === 'DEMANDEUR') {
-    sql += ' WHERE fr.deleted_at IS NULL AND fr.requester_id=$1';
     params.push(userId);
-  } else {
-    sql += ' WHERE fr.deleted_at IS NULL';
+    sql += ` AND fr.requester_id=$${params.length}`;
   }
+
+  if (statuses.length) {
+    params.push(statuses);
+    sql += ` AND fr.status = ANY($${params.length})`;
+  }
+
   sql += ' ORDER BY fr.created_at DESC LIMIT 500';
 
   const { rows } = await pool.query(sql, params);
@@ -107,8 +119,8 @@ async function create(req, res) {
         id, year, seq, request_no,
         request_type, objet, amount_estimated_ar, amount_estimated_words,
         request_date, end_date,
-        status, requester_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'DRAFT',$11)`,
+        status, requester_id, submitted_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SUBMITTED',$11, now())`,
       [
         id,
         year,
@@ -141,7 +153,7 @@ async function submit(req, res) {
 
   const { rows } = await pool.query(
     `UPDATE fuel_requests
-     SET status='SUBMITTED', submitted_at=now(), submitted_by=$2, updated_at=now()
+     SET status='SUBMITTED', submitted_at=now(), updated_at=now()
      WHERE id=$1 AND requester_id=$2 AND status IN ('DRAFT','REJECTED')
      RETURNING *`,
     [id, req.user.id]
@@ -234,10 +246,10 @@ async function softDelete(req, res) {
 
   const { rows } = await pool.query(
     `UPDATE fuel_requests
-     SET deleted_at=now(), updated_at=now()
+     SET deleted_at=now(), deleted_by=$2, updated_at=now()
      WHERE id=$1 AND deleted_at IS NULL
      RETURNING id`,
-    [id]
+    [id, req.user.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND' });
   res.json({ ok: true });

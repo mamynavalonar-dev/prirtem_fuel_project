@@ -89,10 +89,12 @@ CREATE TABLE vehicles (
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_by UUID NULL REFERENCES users(id),
   deleted_at TIMESTAMPTZ NULL
 );
 
 CREATE INDEX idx_vehicles_deleted_at ON vehicles(deleted_at);
+CREATE INDEX idx_vehicles_deleted_by ON vehicles(deleted_by);
 
 CREATE TRIGGER trig_vehicles_updated
 BEFORE UPDATE ON vehicles
@@ -105,10 +107,12 @@ CREATE TABLE drivers (
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_by UUID NULL REFERENCES users(id),
   deleted_at TIMESTAMPTZ NULL
 );
 
 CREATE INDEX idx_drivers_deleted_at ON drivers(deleted_at);
+CREATE INDEX idx_drivers_deleted_by ON drivers(deleted_by);
 
 CREATE TRIGGER trig_drivers_updated
 BEFORE UPDATE ON drivers
@@ -173,12 +177,17 @@ CREATE TABLE vehicle_fuel_logs (
   import_batch_id UUID NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
   import_file_id UUID NOT NULL REFERENCES import_files(id) ON DELETE CASCADE,
 
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
+  deleted_by UUID NULL REFERENCES users(id)
 );
 
 CREATE INDEX idx_vfl_vehicle_date ON vehicle_fuel_logs(vehicle_id, log_date);
 CREATE INDEX idx_vfl_batch ON vehicle_fuel_logs(import_batch_id);
 CREATE INDEX idx_vfl_is_refill ON vehicle_fuel_logs(is_refill);
+
+CREATE INDEX idx_vfl_deleted_at ON vehicle_fuel_logs(deleted_at);
+CREATE INDEX idx_vfl_deleted_by ON vehicle_fuel_logs(deleted_by);
 
 CREATE TABLE generator_fuel_logs (
   id UUID PRIMARY KEY,
@@ -193,10 +202,15 @@ CREATE TABLE generator_fuel_logs (
   import_batch_id UUID NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
   import_file_id UUID NOT NULL REFERENCES import_files(id) ON DELETE CASCADE,
 
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
+  deleted_by UUID NULL REFERENCES users(id)
 );
 
 CREATE INDEX idx_gfl_date ON generator_fuel_logs(log_date);
+
+CREATE INDEX idx_gfl_deleted_at ON generator_fuel_logs(deleted_at);
+CREATE INDEX idx_gfl_deleted_by ON generator_fuel_logs(deleted_by);
 
 CREATE TABLE other_fuel_logs (
   id UUID PRIMARY KEY,
@@ -212,10 +226,15 @@ CREATE TABLE other_fuel_logs (
   import_batch_id UUID NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
   import_file_id UUID NOT NULL REFERENCES import_files(id) ON DELETE CASCADE,
 
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
+  deleted_by UUID NULL REFERENCES users(id)
 );
 
 CREATE INDEX idx_ofl_date ON other_fuel_logs(log_date);
+
+CREATE INDEX idx_ofl_deleted_at ON other_fuel_logs(deleted_at);
+CREATE INDEX idx_ofl_deleted_by ON other_fuel_logs(deleted_by);
 
 -- ---------- REQUESTS ----------
 CREATE TABLE fuel_requests (
@@ -250,6 +269,8 @@ CREATE TABLE fuel_requests (
   cancelled_at TIMESTAMPTZ NULL,
   cancel_reason TEXT NULL,
 
+  deleted_by UUID NULL REFERENCES users(id),
+
   deleted_at TIMESTAMPTZ NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -261,6 +282,7 @@ CREATE TABLE fuel_requests (
 CREATE INDEX idx_fr_status ON fuel_requests(status);
 CREATE INDEX idx_fr_requester ON fuel_requests(requester_id);
 CREATE INDEX idx_fr_deleted_at ON fuel_requests(deleted_at);
+CREATE INDEX idx_fr_deleted_by ON fuel_requests(deleted_by);
 
 CREATE TRIGGER trig_fuel_requests_updated
 BEFORE UPDATE ON fuel_requests
@@ -307,6 +329,8 @@ CREATE TABLE car_requests (
   cancelled_at TIMESTAMPTZ NULL,
   cancel_reason TEXT NULL,
 
+  deleted_by UUID NULL REFERENCES users(id),
+
   deleted_at TIMESTAMPTZ NULL,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -318,6 +342,7 @@ CREATE TABLE car_requests (
 CREATE INDEX idx_cr_status ON car_requests(status);
 CREATE INDEX idx_cr_requester ON car_requests(requester_id);
 CREATE INDEX idx_cr_deleted_at ON car_requests(deleted_at);
+CREATE INDEX idx_cr_deleted_by ON car_requests(deleted_by);
 
 CREATE TRIGGER trig_car_requests_updated
 BEFORE UPDATE ON car_requests
@@ -348,6 +373,8 @@ CREATE TABLE car_logbooks (
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
+  deleted_by UUID NULL REFERENCES users(id),
 
   -- ✅ Cohérence période
   CONSTRAINT chk_car_logbooks_period CHECK (period_end >= period_start)
@@ -356,6 +383,9 @@ CREATE TABLE car_logbooks (
 CREATE INDEX idx_cl_vehicle_period ON car_logbooks(vehicle_id, period_start, period_end);
 CREATE INDEX idx_cl_status ON car_logbooks(status);
 CREATE INDEX idx_cl_type ON car_logbooks(logbook_type);
+
+CREATE INDEX idx_cl_deleted_at ON car_logbooks(deleted_at);
+CREATE INDEX idx_cl_deleted_by ON car_logbooks(deleted_by);
 
 CREATE TRIGGER trig_car_logbooks_updated
 BEFORE UPDATE ON car_logbooks
@@ -424,4 +454,21 @@ CREATE TABLE IF NOT EXISTS admin_audit_logs (
 CREATE INDEX IF NOT EXISTS admin_audit_logs_actor_idx ON admin_audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS admin_audit_logs_target_idx ON admin_audit_logs(target_user_id);
 
+
+-- =========================================================
+-- Notifications: statut lu/non-lu par utilisateur (multi-appareils)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS notification_reads (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notification_id TEXT NOT NULL,
+  read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, notification_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads(user_id);
+
+
+
 COMMIT;
+
+

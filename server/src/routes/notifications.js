@@ -7,6 +7,7 @@ const router = express.Router();
 router.use(authRequired);
 
 router.get('/', asyncHandler(ctrl.getNotifications));
+router.post('/read-all', asyncHandler(ctrl.markAllAsRead));   // ✅ NEW
 router.post('/:id/read', asyncHandler(ctrl.markAsRead));
 
 module.exports = router;

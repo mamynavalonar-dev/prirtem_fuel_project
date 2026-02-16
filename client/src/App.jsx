@@ -15,6 +15,10 @@ import Fuel from './pages/Fuel.jsx';
 import ImportExcel from './pages/ImportExcel.jsx';
 import FuelRequests from './pages/FuelRequests.jsx';
 import CarRequests from './pages/CarRequests.jsx';
+import FuelRequestsManage from './pages/FuelRequestsManage.jsx';
+import FuelRequestsRaf from './pages/FuelRequestsRaf.jsx';
+import CarRequestsManage from './pages/CarRequestsManage.jsx';
+import CarRequestsRaf from './pages/CarRequestsRaf.jsx';
 import CalendarView from './pages/CalendarView.jsx';
 import Logbooks from './pages/Logbooks.jsx';
 import LogbookEdit from './pages/LogbookEdit.jsx';
@@ -121,7 +125,7 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
                   <Layout>
-                    <FuelRequests />
+                    <FuelRequestsManage />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -131,7 +135,7 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN', 'RAF']}>
                   <Layout>
-                    <FuelRequests />
+                    <FuelRequestsRaf />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -152,7 +156,7 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
                   <Layout>
-                    <CarRequests />
+                    <CarRequestsManage />
                   </Layout>
                 </ProtectedRoute>
               }
@@ -162,7 +166,7 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['ADMIN', 'RAF']}>
                   <Layout>
-                    <CarRequests />
+                    <CarRequestsRaf />
                   </Layout>
                 </ProtectedRoute>
               }

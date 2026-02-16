@@ -1,0 +1,229 @@
+.fuelPage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ✅ IMPORTANT : utiliser les tokens thème (light/dark) */
+.fuelCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.fuelHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fuelTitle {
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: -0.6px;
+  color: var(--text);
+}
+
+.fuelSubTitle{
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ✅ Recherche entre sous-titre et tableau */
+.fuelFilters {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 10px;
+  align-items: center;
+}
+
+.fuelSearch input{
+  width: 40%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  outline: none;
+}
+.fuelSearch input::placeholder{
+  color: var(--input-placeholder);
+}
+
+.fuelPrimaryBtn {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: var(--primary-3);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+.fuelPrimaryBtn:hover { filter: brightness(1.05); }
+.fuelPrimaryBtn:disabled{ opacity: .7; cursor: not-allowed; }
+
+.fuelTableWrap {
+  margin-top: 14px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--table-border);
+}
+
+.fuelTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.fuelTable thead th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 12px;
+  background: var(--table-head-bg);
+  border-bottom: 1px solid var(--table-border);
+
+  /* ✅ lisible en LIGHT + OK en DARK */
+  color: var(--text);
+  opacity: .70;
+  font-weight: 900;
+}
+
+.fuelTable tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--table-border);
+  vertical-align: top;
+  font-size: 14px;
+
+  /* ✅ lisible en LIGHT + OK en DARK */
+  color: var(--text);
+  opacity: 1;
+}
+
+/* ✅ Zebra + hover (avec tokens dark) */
+.fuelTable tbody tr:nth-child(even) td { background: rgba(24, 24, 183, 0.377); }
+.fuelTable tbody tr:hover td { background: rgba(24, 24, 183, 0.792); }
+
+.fuelEmpty {
+  padding: 22px !important;
+  text-align: center;
+  color: #fff;
+  font-weight: 600;
+}
+
+.cellStrong{ font-weight: 900; }
+.cellObjet { white-space: pre-wrap; word-break: break-word; }
+
+.cellActions {
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+/* ✅ Boutons icônes (actions) */
+.iconBtn{
+  width: 42px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid var(--icon-border);
+  background: var(--icon-bg);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iconBtn:hover{ background: var(--table-row-hover); }
+
+/* Badges statut : lisibles en dark */
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(96,165,250,.12);
+}
+.status-submitted { background: rgba(96,165,250,.12); }
+.status-verified  { background: rgba(245,158,11,.14); }
+.status-approved  { background: rgba(16,185,129,.14); }
+.status-rejected  { background: rgba(239,68,68,.14); }
+.status-cancelled { background: rgba(148,163,184,.14); }
+
+/* Modal create */
+.fuelCreateGrid{
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.field input, .field select{
+  width: 100%;
+  padding: 10px 11px;
+  border-radius: 12px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  outline: none;
+}
+
+.fieldFull { grid-column: 1 / -1; }
+.fieldWords { grid-column: 1 / -1; }
+
+.fuelActions{
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Modal details */
+.fuelModalGrid{
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+.fuelModalSpan{ grid-column: 1 / -1; }
+
+.fuelModalLabel{
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.fuelModalValue{
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fuelModalActions{
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+.fuelModalActions .fuelPrimaryBtn{
+  width: 20%;
+}
