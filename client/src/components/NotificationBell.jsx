@@ -35,7 +35,6 @@ export default function NotificationBell() {
   const DAYS = 7;
 
   const [open, setOpen] = useState(false);
-
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
 
@@ -50,13 +49,12 @@ export default function NotificationBell() {
   const knownIdsRef = useRef(new Set());
   const hasFetchedRef = useRef(false);
   const openRef = useRef(false);
+
   useEffect(() => {
     openRef.current = open;
   }, [open]);
 
-  const hasMore = useMemo(() => {
-    return items.length < totalCount;
-  }, [items.length, totalCount]);
+  const hasMore = useMemo(() => items.length < totalCount, [items.length, totalCount]);
 
   function pushToast(t) {
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -72,7 +70,7 @@ export default function NotificationBell() {
   }
 
   async function fetchPage({ reset = false } = {}) {
-    if (!token) return;
+    if (!token) return [];
 
     const nextOffset = reset ? 0 : offset;
     const isMore = !reset;
@@ -91,7 +89,8 @@ export default function NotificationBell() {
 
       setItems((prev) => {
         const merged = reset ? page : [...prev, ...page];
-        // dédoublonnage par id (au cas où)
+
+        // dédoublonnage
         const seen = new Set();
         const out = [];
         for (const n of merged) {
@@ -100,11 +99,12 @@ export default function NotificationBell() {
           seen.add(id);
           out.push(n);
         }
+
         recomputeUnread(out);
         return out;
       });
 
-      // Toast "nouvelles notifs" (uniquement après 1er fetch + quand dropdown fermé)
+      // Toast "nouvelles notifs" (après 1er fetch + quand dropdown fermé)
       if (hasFetchedRef.current && !openRef.current) {
         let delta = 0;
         const known = knownIdsRef.current;
@@ -135,8 +135,11 @@ export default function NotificationBell() {
 
       hasFetchedRef.current = true;
       setOffset(nextOffset + page.length);
+
+      return page;
     } catch (e) {
       console.error('Notifications: fetch failed', e);
+      return [];
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -155,7 +158,6 @@ export default function NotificationBell() {
         body: { ids: clean },
       });
 
-      // update local state
       setItems((prev) => {
         const next = prev.map((n) => (clean.includes(String(n.id)) ? { ...n, is_read: true } : n));
         recomputeUnread(next);
@@ -189,10 +191,9 @@ export default function NotificationBell() {
 
   function handleClickNotif(n) {
     const id = String(n?.id || '').trim();
-
     setOpen(false);
-    if (id && !n?.is_read) markOneAsRead(id);
 
+    if (id && !n?.is_read) markOneAsRead(id);
     if (n?.link) navigate(n.link);
   }
 
@@ -209,13 +210,10 @@ export default function NotificationBell() {
       return;
     }
 
-    // 1er fetch
     setOffset(0);
     fetchPage({ reset: true });
 
-    // Polling (plus soft)
     const interval = setInterval(() => {
-      // on refresh la page 1 (reset) pour récupérer les nouvelles notifs
       fetchPage({ reset: true });
     }, 15000);
 
@@ -232,18 +230,19 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', onDown);
   }, []);
 
-  // À l'ouverture : on charge page 1 + (option) on considère "vu = lu"
   async function openDropdown() {
     setOpen(true);
     setOffset(0);
     await fetchPage({ reset: true });
 
-    // ✅ Option "pro" que tu aimais déjà : ouvrir = vu => on marque la page chargée comme lue
-    // (si tu veux enlever ce comportement, supprime juste ce bloc)
-    const unreadIds = (items || []).filter((x) => x && !x.is_read).map((x) => x.id);
-    if (unreadIds.length > 0) {
-      markIdsAsRead(unreadIds);
-    }
+    // ❌ IMPORTANT : on NE marque PLUS tout comme lu à l’ouverture,
+    // sinon tu ne verras jamais le bouton “Marquer tout lu”.
+  }
+
+  function markAllVisibleAsRead() {
+    const unreadIds = items.filter((x) => x && !x.is_read).map((x) => x.id);
+    if (unreadIds.length === 0) return;
+    markIdsAsRead(unreadIds);
   }
 
   return (
@@ -327,6 +326,7 @@ export default function NotificationBell() {
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 gap: 10,
+                flexWrap: 'wrap',
                 borderBottom: '1px solid var(--border)',
               }}
             >
@@ -334,19 +334,19 @@ export default function NotificationBell() {
                 Notifications
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {unread > 0 && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => {
-                      const unreadIds = items.filter((x) => x && !x.is_read).map((x) => x.id);
-                      markIdsAsRead(unreadIds);
-                    }}
-                  >
-                    Tout marquer lu
-                  </button>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {/* ✅ toujours visible (désactivé si 0) */}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={unread === 0 || loading}
+                  onClick={markAllVisibleAsRead}
+                  title={unread === 0 ? 'Aucune notification non lue' : 'Marquer toutes les notifications affichées comme lues'}
+                  style={{ opacity: unread === 0 ? 0.6 : 1 }}
+                >
+                  Marquer tout lu
+                </button>
+
                 <div className="badge badge-info">{unread} non lue(s)</div>
               </div>
             </div>

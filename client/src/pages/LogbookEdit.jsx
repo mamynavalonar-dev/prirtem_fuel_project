@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
@@ -88,7 +88,7 @@ function makeEmptySupply(baseDate = '') {
 
 function mapTripFromApi(t) {
   return {
-    date: ymd(t.trip_date),
+    date: ymd(t.trip_date ?? t.date),
     departHeure: t.depart_time ? String(t.depart_time).slice(0, 5) : '',
     departKm: t.depart_km ?? '',
     debutTrajet: t.route_start ?? '',
@@ -99,33 +99,44 @@ function mapTripFromApi(t) {
     arriveeKm: t.arrival_km ?? '',
     personnesTransportees: t.passengers ?? '',
     emargement: t.emargement ?? '',
-    isMission: !!t.is_mission,
+    isMission: !!(t.is_mission ?? t.isMission),
     missionLabel: t.mission_label ?? '',
   };
 }
 
 function mapSupplyFromApi(s) {
   return {
-    date: ymd(s.supply_date),
+    date: ymd(s.supply_date ?? s.date),
     compteurKm: s.compteur_km ?? '',
     litres: s.liters ?? '',
     montantAr: s.montant_ar ?? '',
   };
 }
 
+// ✅ '' ne doit pas devenir 0
+function toNumOrNaN(v) {
+  if (v === '' || v === null || v === undefined) return NaN;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function computeKmFromTrips(trajets) {
   let service = 0;
   let mission = 0;
+
   for (const t of trajets) {
-    const dep = Number(t.departKm);
-    const arr = Number(t.arriveeKm);
-    const ok = Number.isFinite(dep) && Number.isFinite(arr);
-    if (!ok) continue;
+    const dep = toNumOrNaN(t.departKm);
+    const arr = toNumOrNaN(t.arriveeKm);
+    if (!Number.isFinite(dep) || !Number.isFinite(arr)) continue;
+
     const d = arr - dep;
     if (!Number.isFinite(d)) continue;
-    if (t.isMission) mission += Math.max(0, d);
-    else service += Math.max(0, d);
+
+    const delta = Math.max(0, d);
+    if (t.isMission) mission += delta;
+    else service += delta;
   }
+
   return { service_km: Math.round(service), mission_km: Math.round(mission) };
 }
 
@@ -136,7 +147,6 @@ function validateAll({ logbook, trajets, carburants }) {
   const ps = ymd(logbook?.period_start);
   const pe = ymd(logbook?.period_end);
 
-  // Trips
   trajets.forEach((t, idx) => {
     const row = idx + 1;
     if (!t.date) errors.push(`Trajet #${row}: date manquante`);
@@ -167,7 +177,6 @@ function validateAll({ logbook, trajets, carburants }) {
     }
   });
 
-  // Supplies
   carburants.forEach((s, idx) => {
     const row = idx + 1;
     if (!s.date) errors.push(`Carburant #${row}: date manquante`);
@@ -185,6 +194,21 @@ function validateAll({ logbook, trajets, carburants }) {
   });
 
   return { errors, warnings };
+}
+
+function FieldGrid({ children }) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gap: 12,
+        alignItems: 'end',
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 export default function LogbookEdit() {
@@ -209,23 +233,31 @@ export default function LogbookEdit() {
   // Paste Excel modal
   const [pasteModal, setPasteModal] = useState(null); // {kind:'trips'|'fuel', text:''}
 
-  const firstTripInputRef = useRef(null);
+  // ✅ Add/Edit modals (nouveau)
+  const [tripModal, setTripModal] = useState(null); // {mode:'add'|'edit', idx:number|null, data:Trip}
+  const [supplyModal, setSupplyModal] = useState(null); // {mode:'add'|'edit', idx:number|null, data:Supply}
 
   async function load() {
+    if (!token || !id) return;
     setLoading(true);
     setErr(null);
+
     try {
       const data = await apiFetch(`/api/logbooks/${id}`, { token });
-      const book = data.logbook;
+
+      const book = data?.logbook || data?.item || null;
+      if (!book) throw new Error('Réponse API invalide: logbook/item manquant');
+
+      const tripsRaw = Array.isArray(data?.trips) ? data.trips : [];
+      const suppliesRaw = Array.isArray(data?.supplies) ? data.supplies : [];
 
       const base = {
         logbook: book,
-        trajets: (data.trips || []).map(mapTripFromApi),
-        carburants: (data.supplies || []).map(mapSupplyFromApi),
+        trajets: tripsRaw.map(mapTripFromApi),
+        carburants: suppliesRaw.map(mapSupplyFromApi),
         corbeille: { trajets: [], carburants: [] },
       };
 
-      // restore local draft
       const draftRaw = localStorage.getItem(draftKey(id));
       const draft = draftRaw ? safeJsonParse(draftRaw) : null;
 
@@ -274,6 +306,7 @@ export default function LogbookEdit() {
   }
 
   const kmAuto = useMemo(() => computeKmFromTrips(trajets), [trajets]);
+
   const kmMismatch = useMemo(() => {
     if (!logbook) return false;
     const s = Number(logbook.service_km || 0);
@@ -291,51 +324,86 @@ export default function LogbookEdit() {
     return t === 'MISSION' ? 'JOURNAL DE BORD VOITURE MISSION' : 'JOURNAL DE BORD VOITURE';
   }, [logbook]);
 
-  function updateTrip(idx, patch) {
-    setTrajets((prev) => prev.map((t, i) => (i === idx ? { ...t, ...patch } : t)));
-  }
-
-  function addTrip() {
+  // =========================
+  // ✅ MODALS: Add/Edit Trip
+  // =========================
+  function openAddTripModal() {
     if (locked || !canEdit) return;
     const baseDate = ymd(logbook?.period_start);
-    setTrajets((prev) => [...prev, makeEmptyTrip(baseDate)]);
-    setTimeout(() => {
-      if (firstTripInputRef.current) firstTripInputRef.current.focus();
-    }, 0);
+    setTripModal({ mode: 'add', idx: null, data: makeEmptyTrip(baseDate) });
+  }
+
+  function openEditTripModal(idx) {
+    if (locked || !canEdit) return;
+    const x = trajets[idx];
+    if (!x) return;
+    setTripModal({ mode: 'edit', idx, data: { ...x } });
+  }
+
+  function saveTripModal() {
+    if (!tripModal || locked || !canEdit) return;
+    const { mode, idx, data } = tripModal;
+
+    if (mode === 'add') setTrajets((prev) => [...prev, data]);
+    else if (mode === 'edit' && idx != null) setTrajets((prev) => prev.map((t, i) => (i === idx ? data : t)));
+
+    setTripModal(null);
   }
 
   function deleteTrip(idx) {
     if (locked || !canEdit) return;
-    setCorbeille((prev) => ({ ...prev, trajets: [...prev.trajets, trajets[idx]] }));
+    const x = trajets[idx];
+    if (!x) return;
+    setCorbeille((prev) => ({ ...prev, trajets: [...prev.trajets, x] }));
     setTrajets((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  // =========================
+  // ✅ MODALS: Add/Edit Supply
+  // =========================
+  function openAddSupplyModal() {
+    if (locked || !canEdit) return;
+    const baseDate = ymd(logbook?.period_start);
+    setSupplyModal({ mode: 'add', idx: null, data: makeEmptySupply(baseDate) });
+  }
+
+  function openEditSupplyModal(idx) {
+    if (locked || !canEdit) return;
+    const x = carburants[idx];
+    if (!x) return;
+    setSupplyModal({ mode: 'edit', idx, data: { ...x } });
+  }
+
+  function saveSupplyModal() {
+    if (!supplyModal || locked || !canEdit) return;
+    const { mode, idx, data } = supplyModal;
+
+    if (mode === 'add') setCarburants((prev) => [...prev, data]);
+    else if (mode === 'edit' && idx != null) setCarburants((prev) => prev.map((s, i) => (i === idx ? data : s)));
+
+    setSupplyModal(null);
+  }
+
+  function deleteSupply(idx) {
+    if (locked || !canEdit) return;
+    const x = carburants[idx];
+    if (!x) return;
+    setCorbeille((prev) => ({ ...prev, carburants: [...prev.carburants, x] }));
+    setCarburants((prev) => prev.filter((_, i) => i !== idx));
   }
 
   function restoreTrip(idx) {
     if (locked || !canEdit) return;
     const x = corbeille.trajets[idx];
+    if (!x) return;
     setTrajets((prev) => [...prev, x]);
     setCorbeille((prev) => ({ ...prev, trajets: prev.trajets.filter((_, i) => i !== idx) }));
-  }
-
-  function updateSupply(idx, patch) {
-    setCarburants((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
-  }
-
-  function addSupply() {
-    if (locked || !canEdit) return;
-    const baseDate = ymd(logbook?.period_start);
-    setCarburants((prev) => [...prev, makeEmptySupply(baseDate)]);
-  }
-
-  function deleteSupply(idx) {
-    if (locked || !canEdit) return;
-    setCorbeille((prev) => ({ ...prev, carburants: [...prev.carburants, carburants[idx]] }));
-    setCarburants((prev) => prev.filter((_, i) => i !== idx));
   }
 
   function restoreSupply(idx) {
     if (locked || !canEdit) return;
     const x = corbeille.carburants[idx];
+    if (!x) return;
     setCarburants((prev) => [...prev, x]);
     setCorbeille((prev) => ({ ...prev, carburants: prev.carburants.filter((_, i) => i !== idx) }));
   }
@@ -362,7 +430,11 @@ export default function LogbookEdit() {
       return;
     }
     if (validation.warnings.length) {
-      const ok = window.confirm('⚠️ Il y a des avertissements.\n\n' + validation.warnings.map((x) => `- ${x}`).join('\n') + '\n\nContinuer ?');
+      const ok = window.confirm(
+        '⚠️ Il y a des avertissements.\n\n' +
+        validation.warnings.map((x) => `- ${x}`).join('\n') +
+        '\n\nContinuer ?'
+      );
       if (!ok) return;
     }
 
@@ -374,7 +446,7 @@ export default function LogbookEdit() {
         mission_km: Number(logbook.mission_km || 0),
       };
 
-      // ✅ type modifiable uniquement en DRAFT
+      // type modifiable uniquement en DRAFT
       if ((logbook.status === 'DRAFT') && logbook.logbook_type) {
         headerBody.logbook_type = logbook.logbook_type;
       }
@@ -410,9 +482,9 @@ export default function LogbookEdit() {
 
       const suppliesPayload = carburants.map((s) => ({
         supply_date: s.date,
-        compteur_km: Number(s.compteurKm || 0),
-        liters: Number(s.litres || 0),
-        montant_ar: Number(s.montantAr || 0),
+        compteur_km: s.compteurKm === '' ? null : Number(s.compteurKm),
+        liters: s.litres === '' ? null : Number(s.litres),
+        montant_ar: s.montantAr === '' ? null : Number(s.montantAr),
       }));
 
       await apiFetch(`/api/logbooks/${id}/supplies`, {
@@ -467,7 +539,6 @@ export default function LogbookEdit() {
   }
 
   function parseTSVTrips(tsv) {
-    // colonnes attendues (tab): date, depHeure, depKm, debut, fin, lieu, duree, arrHeure, arrKm, personnes, emargement, isMission, missionLabel
     const lines = tsv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const out = [];
     for (const line of lines) {
@@ -493,7 +564,6 @@ export default function LogbookEdit() {
   }
 
   function parseTSVSupplies(tsv) {
-    // tab: date, compteur, litres, montant
     const lines = tsv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const out = [];
     for (const line of lines) {
@@ -531,6 +601,7 @@ export default function LogbookEdit() {
   if (!logbook) return <div className="card">Journal introuvable.</div>;
 
   const corbeilleCount = (corbeille.trajets.length + corbeille.carburants.length);
+  const plateLabel = logbook.plate || logbook.vehicle_plate || logbook.vehiclePlate || '—';
 
   return (
     <div className="container">
@@ -553,7 +624,7 @@ export default function LogbookEdit() {
             <div>
               <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>{title}</div>
               <div className="muted" style={{ fontSize: 13, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <span><b>Immatriculation:</b> {logbook.plate}</span>
+                <span><b>Immatriculation:</b> {plateLabel}</span>
                 <span><b>Période:</b> {ymd(logbook.period_start)} → {ymd(logbook.period_end)}</span>
                 <span className={`badge ${logbook.status === 'LOCKED' ? 'badge-bad' : logbook.status === 'SUBMITTED' ? 'badge-info' : 'badge-warn'}`}>
                   {logbook.status}
@@ -561,9 +632,7 @@ export default function LogbookEdit() {
                 <span className={`badge ${logbook.logbook_type === 'MISSION' ? 'badge-warn' : 'badge-info'}`}>
                   {logbook.logbook_type || 'SERVICE'}
                 </span>
-                {kmMismatch && (
-                  <span className="badge badge-bad">⚠ km incohérents vs trajets</span>
-                )}
+                {kmMismatch && <span className="badge badge-bad">⚠ km incohérents vs trajets</span>}
               </div>
             </div>
           </div>
@@ -681,151 +750,56 @@ export default function LogbookEdit() {
         <div className="rowBetween" style={{ alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>Trajets</h3>
           {canEdit && !locked && (
-            <button className="btn btn-outline" onClick={addTrip}>+ Ajouter une ligne</button>
+            <button className="btn btn-outline" onClick={openAddTripModal}>+ Ajouter une ligne</button>
           )}
         </div>
 
         <div style={{ overflow: 'auto', marginTop: 10 }}>
-          <table className="table">
+          <table className="table" style={{ minWidth: 1100 }}>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Départ h</th>
                 <th>Départ km</th>
-                <th>Début trajet</th>
-                <th>Fin trajet</th>
-                <th>Lieu stationnement</th>
+                <th>Début</th>
+                <th>Fin</th>
+                <th>Stationnement</th>
                 <th>Durée</th>
                 <th>Arrivée h</th>
                 <th>Arrivée km</th>
                 <th>Personnes</th>
                 <th>Émargement</th>
                 <th>Mission</th>
-                <th></th>
+                <th style={{ width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
               {trajets.map((t, idx) => (
                 <tr key={idx}>
+                  <td>{t.date || '—'}</td>
+                  <td>{t.departHeure || '—'}</td>
+                  <td>{t.departKm !== '' ? t.departKm : '—'}</td>
+                  <td>{t.debutTrajet || '—'}</td>
+                  <td>{t.finTrajet || '—'}</td>
+                  <td>{t.lieuStationnement || '—'}</td>
+                  <td>{t.dureeStationnement || '—'}</td>
+                  <td>{t.arriveeHeure || '—'}</td>
+                  <td>{t.arriveeKm !== '' ? t.arriveeKm : '—'}</td>
+                  <td>{t.personnesTransportees || '—'}</td>
+                  <td>{t.emargement || '—'}</td>
                   <td>
-                    <input
-                      ref={idx === 0 ? firstTripInputRef : null}
-                      className="input"
-                      type="date"
-                      value={t.date}
-                      disabled={!canEdit || locked}
-                      onChange={(e) => updateTrip(idx, { date: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="time"
-                      value={t.departHeure}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { departHeure: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="number"
-                      value={t.departKm}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { departKm: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.debutTrajet}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { debutTrajet: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.finTrajet}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { finTrajet: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.lieuStationnement}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { lieuStationnement: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.dureeStationnement}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { dureeStationnement: e.target.value })}
-                      placeholder="ex: 45 / 1h30"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="time"
-                      value={t.arriveeHeure}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { arriveeHeure: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="number"
-                      value={t.arriveeKm}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { arriveeKm: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.personnesTransportees}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { personnesTransportees: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      value={t.emargement}
-                      disabled={!canEdit || locked || t.isMission}
-                      onChange={(e) => updateTrip(idx, { emargement: e.target.value })}
-                    />
-                  </td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!t.isMission}
-                        disabled={!canEdit || locked}
-                        onChange={(e) => updateTrip(idx, { isMission: e.target.checked })}
-                      />
-                      <span className="muted">isMission</span>
-                    </label>
-                    {t.isMission && (
-                      <input
-                        className="input"
-                        style={{ marginTop: 6 }}
-                        value={t.missionLabel}
-                        disabled={!canEdit || locked}
-                        onChange={(e) => updateTrip(idx, { missionLabel: e.target.value })}
-                        placeholder="Libellé mission"
-                      />
+                    {t.isMission ? (
+                      <span className="badge badge-warn">MISSION{t.missionLabel ? `: ${t.missionLabel}` : ''}</span>
+                    ) : (
+                      <span className="badge badge-info">SERVICE</span>
                     )}
                   </td>
-                  <td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     {canEdit && !locked && (
-                      <button className="btn btn-danger btn-sm" onClick={() => deleteTrip(idx)}>🗑</button>
+                      <>
+                        <button className="btn btn-outline btn-sm" onClick={() => openEditTripModal(idx)}>Modifier</button>
+                        <button className="btn btn-danger btn-sm" style={{ marginLeft: 8 }} onClick={() => deleteTrip(idx)}>🗑</button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -844,63 +818,34 @@ export default function LogbookEdit() {
         <div className="rowBetween" style={{ alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>Approvisionnement carburant</h3>
           {canEdit && !locked && (
-            <button className="btn btn-outline" onClick={addSupply}>+ Ajouter</button>
+            <button className="btn btn-outline" onClick={openAddSupplyModal}>+ Ajouter</button>
           )}
         </div>
 
         <div style={{ overflow: 'auto', marginTop: 10 }}>
-          <table className="table">
+          <table className="table" style={{ minWidth: 720 }}>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Compteur km</th>
                 <th>Litres</th>
                 <th>Montant (Ar)</th>
-                <th></th>
+                <th style={{ width: 160 }}></th>
               </tr>
             </thead>
             <tbody>
               {carburants.map((s, idx) => (
                 <tr key={idx}>
-                  <td>
-                    <input
-                      className="input"
-                      type="date"
-                      value={s.date}
-                      disabled={!canEdit || locked}
-                      onChange={(e) => updateSupply(idx, { date: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="number"
-                      value={s.compteurKm}
-                      disabled={!canEdit || locked}
-                      onChange={(e) => updateSupply(idx, { compteurKm: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="number"
-                      value={s.litres}
-                      disabled={!canEdit || locked}
-                      onChange={(e) => updateSupply(idx, { litres: e.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="input"
-                      type="number"
-                      value={s.montantAr}
-                      disabled={!canEdit || locked}
-                      onChange={(e) => updateSupply(idx, { montantAr: e.target.value })}
-                    />
-                  </td>
-                  <td>
+                  <td>{s.date || '—'}</td>
+                  <td>{s.compteurKm !== '' ? s.compteurKm : '—'}</td>
+                  <td>{s.litres !== '' ? s.litres : '—'}</td>
+                  <td>{s.montantAr !== '' ? s.montantAr : '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     {canEdit && !locked && (
-                      <button className="btn btn-danger btn-sm" onClick={() => deleteSupply(idx)}>🗑</button>
+                      <>
+                        <button className="btn btn-outline btn-sm" onClick={() => openEditSupplyModal(idx)}>Modifier</button>
+                        <button className="btn btn-danger btn-sm" style={{ marginLeft: 8 }} onClick={() => deleteSupply(idx)}>🗑</button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -960,6 +905,221 @@ export default function LogbookEdit() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL AJOUT/MODIF TRAJET */}
+      {tripModal && (
+        <Modal
+          title={tripModal.mode === 'add' ? 'Ajouter un trajet' : 'Modifier le trajet'}
+          onClose={() => setTripModal(null)}
+          width={980}
+        >
+          <FieldGrid>
+            <div className="field">
+              <div className="label">Date</div>
+              <input
+                className="input"
+                type="date"
+                value={tripModal.data.date}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, date: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Mission ?</div>
+              <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={!!tripModal.data.isMission}
+                  onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, isMission: e.target.checked } })}
+                />
+                <span className="muted">isMission</span>
+              </label>
+            </div>
+
+            {tripModal.data.isMission && (
+              <div className="field">
+                <div className="label">Libellé mission</div>
+                <input
+                  className="input"
+                  value={tripModal.data.missionLabel}
+                  onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, missionLabel: e.target.value } })}
+                  placeholder="Ex: Livraison / Course / ..."
+                />
+              </div>
+            )}
+
+            <div className="field">
+              <div className="label">Départ heure</div>
+              <input
+                className="input"
+                type="time"
+                value={tripModal.data.departHeure}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, departHeure: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Départ km</div>
+              <input
+                className="input"
+                type="number"
+                value={tripModal.data.departKm}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, departKm: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Début trajet</div>
+              <input
+                className="input"
+                value={tripModal.data.debutTrajet}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, debutTrajet: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Fin trajet</div>
+              <input
+                className="input"
+                value={tripModal.data.finTrajet}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, finTrajet: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Lieu stationnement</div>
+              <input
+                className="input"
+                value={tripModal.data.lieuStationnement}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, lieuStationnement: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Durée stationnement</div>
+              <input
+                className="input"
+                value={tripModal.data.dureeStationnement}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, dureeStationnement: e.target.value } })}
+                placeholder="ex: 45 / 1h30"
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Arrivée heure</div>
+              <input
+                className="input"
+                type="time"
+                value={tripModal.data.arriveeHeure}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, arriveeHeure: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Arrivée km</div>
+              <input
+                className="input"
+                type="number"
+                value={tripModal.data.arriveeKm}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, arriveeKm: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Personnes transportées</div>
+              <input
+                className="input"
+                value={tripModal.data.personnesTransportees}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, personnesTransportees: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Émargement</div>
+              <input
+                className="input"
+                value={tripModal.data.emargement}
+                disabled={!!tripModal.data.isMission}
+                onChange={(e) => setTripModal({ ...tripModal, data: { ...tripModal.data, emargement: e.target.value } })}
+              />
+            </div>
+          </FieldGrid>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+            <button className="btn btn-outline" onClick={() => setTripModal(null)}>Annuler</button>
+            <button className="btn" onClick={saveTripModal}>
+              {tripModal.mode === 'add' ? 'Ajouter' : 'Enregistrer'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL AJOUT/MODIF CARBURANT */}
+      {supplyModal && (
+        <Modal
+          title={supplyModal.mode === 'add' ? 'Ajouter un approvisionnement' : 'Modifier l’approvisionnement'}
+          onClose={() => setSupplyModal(null)}
+          width={820}
+        >
+          <FieldGrid>
+            <div className="field">
+              <div className="label">Date</div>
+              <input
+                className="input"
+                type="date"
+                value={supplyModal.data.date}
+                onChange={(e) => setSupplyModal({ ...supplyModal, data: { ...supplyModal.data, date: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Compteur km</div>
+              <input
+                className="input"
+                type="number"
+                value={supplyModal.data.compteurKm}
+                onChange={(e) => setSupplyModal({ ...supplyModal, data: { ...supplyModal.data, compteurKm: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Litres</div>
+              <input
+                className="input"
+                type="number"
+                value={supplyModal.data.litres}
+                onChange={(e) => setSupplyModal({ ...supplyModal, data: { ...supplyModal.data, litres: e.target.value } })}
+              />
+            </div>
+
+            <div className="field">
+              <div className="label">Montant (Ar)</div>
+              <input
+                className="input"
+                type="number"
+                value={supplyModal.data.montantAr}
+                onChange={(e) => setSupplyModal({ ...supplyModal, data: { ...supplyModal.data, montantAr: e.target.value } })}
+              />
+            </div>
+          </FieldGrid>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+            <button className="btn btn-outline" onClick={() => setSupplyModal(null)}>Annuler</button>
+            <button className="btn" onClick={saveSupplyModal}>
+              {supplyModal.mode === 'add' ? 'Ajouter' : 'Enregistrer'}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* PASTE MODAL */}

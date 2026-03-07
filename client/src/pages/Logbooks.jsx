@@ -55,7 +55,8 @@ export default function Logbooks() {
 
   async function loadVehicles() {
     try {
-      const d = await apiFetch('/api/vehicles', { token });
+      // ✅ SERVER: /api/meta/vehicles
+      const d = await apiFetch('/api/meta/vehicles', { token });
       setVehicles(d.vehicles || []);
     } catch {
       // silence
@@ -63,6 +64,7 @@ export default function Logbooks() {
   }
 
   async function load() {
+    if (!token) return;
     setLoading(true);
     setErr(null);
     try {
@@ -84,13 +86,15 @@ export default function Logbooks() {
   }
 
   useEffect(() => {
+    if (!token) return;
     loadVehicles();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fVehicle, fStatus, fType, fFrom, fTo, q]);
+  }, [token, fVehicle, fStatus, fType, fFrom, fTo, q]);
 
   const resetFilters = () => {
     setFVehicle('');
@@ -124,6 +128,15 @@ export default function Logbooks() {
   };
 
   const create = async () => {
+    if (!createForm.vehicle_id) {
+      alert('❌ Sélectionne un véhicule.');
+      return;
+    }
+    if (!createForm.period_start || !createForm.period_end) {
+      alert('❌ Renseigne la période (Du / Au).');
+      return;
+    }
+
     setCreating(true);
     try {
       const body = {
@@ -131,9 +144,18 @@ export default function Logbooks() {
         period_start: createForm.period_start,
         period_end: createForm.period_end
       };
-      await apiFetch('/api/logbooks', { method: 'POST', token, body });
+
+      const res = await apiFetch('/api/logbooks', { method: 'POST', token, body });
+
       setShowCreate(false);
-      await load();
+
+      // ✅ Ouvre le journal créé si le serveur renvoie { item: { id } }
+      const newId = res?.item?.id || res?.id;
+      if (newId) {
+        navigate(`/app/logbooks/${newId}`);
+      } else {
+        await load();
+      }
     } catch (e) {
       alert(String(e.message || e));
     } finally {
@@ -155,8 +177,8 @@ export default function Logbooks() {
 
   const statusBadgeClass = (s) => {
     if (s === 'LOCKED') return 'badge-ok';
-    if (s === 'SUBMITTED') return '';
-    return '';
+    if (s === 'SUBMITTED') return 'badge-info';
+    return 'badge-warn'; // DRAFT
   };
 
   const typeChipClass = (t) => (t === 'MISSION' ? 'chip chip-mission' : 'chip chip-service');
@@ -173,7 +195,7 @@ export default function Logbooks() {
 
           <div className="logbooksHeaderRight">
             <div className="muted" style={{ fontWeight: 700 }}>
-              {items.length} / {items.length}
+              {items.length}
             </div>
 
             {canManage && (
@@ -251,7 +273,6 @@ export default function Logbooks() {
         {err && <div className="muted" style={{ color: '#b91c1c', marginTop: 10 }}>{err}</div>}
 
         <div style={{ overflow: 'auto', marginTop: 14 }}>
-          {/* ✅ zebra + lisibilité light */}
           <table className="table table-zebra logbooksTable">
             <thead>
               <tr>
@@ -286,7 +307,6 @@ export default function Logbooks() {
                       <span className={`badge ${statusBadgeClass(l.status)}`}>{l.status}</span>
                     </td>
                     <td className="logbooksActionsCell">
-                      {/* Voir */}
                       <button
                         className="iconActionBtn"
                         onClick={() => openView(l.id)}
@@ -296,7 +316,6 @@ export default function Logbooks() {
                         <ion-icon name="eye-outline" />
                       </button>
 
-                      {/* Ouvrir */}
                       <button
                         className="iconActionBtn iconActionBtnPrimary"
                         onClick={() => navigate(`/app/logbooks/${l.id}`)}
@@ -306,7 +325,6 @@ export default function Logbooks() {
                         <ion-icon name="open-outline" />
                       </button>
 
-                      {/* Imprimer */}
                       <a
                         className="iconActionBtn iconActionBtnDark"
                         href={`/print/logbook/${l.id}`}
@@ -318,7 +336,6 @@ export default function Logbooks() {
                         <ion-icon name="print-outline" />
                       </a>
 
-                      {/* Corbeille */}
                       {canManage && (
                         <button
                           className="iconActionBtn iconActionBtnDanger"
@@ -413,7 +430,7 @@ export default function Logbooks() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-            <button className="btn" onClick={create} disabled={creating}>
+            <button className="btn" onClick={create} disabled={creating} data-autofocus="true">
               Créer et ouvrir
             </button>
           </div>

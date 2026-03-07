@@ -13,8 +13,12 @@ router.put('/:id', authRequired, logbooks.update);
 router.put('/:id/trips', authRequired, logbooks.replaceTrips);
 router.put('/:id/supplies', authRequired, logbooks.replaceSupplies);
 
+// ✅ compat: POST + PATCH
 router.post('/:id/submit', authRequired, logbooks.submit);
+router.patch('/:id/submit', authRequired, logbooks.submit);
+
 router.post('/:id/lock', authRequired, logbooks.lock);
+router.patch('/:id/lock', authRequired, logbooks.lock);
 
 /** ✅ Soft delete -> corbeille */
 router.delete('/:id', authRequired, logbooks.softDelete);

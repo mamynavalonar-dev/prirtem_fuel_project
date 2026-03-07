@@ -274,7 +274,11 @@ html[data-theme="light"] .fuel-kpi-hint{
 /* =========================================================
    TABLE
    ========================================================= */
-.fuel-table-wrap{ margin-top: 12px; }
+.fuel-table-wrap{ 
+  margin-top: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* scroll fluide sur iOS */
+}
 
 td.num, th.num{ text-align:right; }
 td.center, th.center{ text-align:center; }

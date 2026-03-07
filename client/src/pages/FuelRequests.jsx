@@ -411,7 +411,7 @@ export default function FuelRequests() {
 
             <div className="fuelActions">
               <button className="fuelPrimaryBtn" type="submit" disabled={busy}>
-                {busy ? 'Enregistrement…' : 'Enregistrer'}
+                {busy ? 'Envoie en cours…' : 'Envoyer'}
               </button>
             </div>
           </form>

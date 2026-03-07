@@ -3,7 +3,6 @@ const asyncHandler = require('../utils/asyncHandler');
 const { pool } = require('../db');
 const crypto = require('crypto');
 
-
 const createSchema = z.object({
   vehicle_id: z.string().uuid(),
   period_start: z.string().min(1),
@@ -12,10 +11,14 @@ const createSchema = z.object({
   logbook_type: z.enum(['SERVICE', 'MISSION']).optional().default('SERVICE'),
 });
 
+// ✅ update partiel (match client)
 const updateSchema = z.object({
-  period_start: z.string().min(1),
-  period_end: z.string().min(1),
+  period_start: z.string().min(1).optional(),
+  period_end: z.string().min(1).optional(),
   objet: z.string().optional().nullable(),
+  chauffeur_signature: z.string().optional().nullable(),
+  service_km: z.coerce.number().int().nonnegative().optional(),
+  mission_km: z.coerce.number().int().nonnegative().optional(),
   logbook_type: z.enum(['SERVICE', 'MISSION']).optional(),
 });
 
@@ -30,6 +33,12 @@ function requireManageRole(req, res) {
 
 function ymd(s) {
   return String(s).slice(0, 10);
+}
+
+function toNull(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v);
+  return s.trim() === '' ? null : s;
 }
 
 exports.list = asyncHandler(async (req, res) => {
@@ -100,7 +109,6 @@ exports.create = asyncHandler(async (req, res) => {
 
   const body = createSchema.parse(req.body);
 
-  // basic check
   if (ymd(body.period_end) < ymd(body.period_start)) {
     return res.status(400).json({ error: 'La date de fin doit être >= la date de début' });
   }
@@ -129,7 +137,7 @@ exports.create = asyncHandler(async (req, res) => {
     body.vehicle_id,
     body.period_start,
     body.period_end,
-    body.objet || null,
+    toNull(body.objet),
     createdBy,
     body.logbook_type || 'SERVICE',
   ]);
@@ -167,28 +175,55 @@ exports.getOne = asyncHandler(async (req, res) => {
     [id]
   );
 
-  res.json({ item, trips: trips.rows, supplies: supplies.rows });
+  // ✅ compat client: logbook + compat historique: item
+  res.json({ logbook: item, item, trips: trips.rows, supplies: supplies.rows });
 });
 
 exports.update = asyncHandler(async (req, res) => {
   if (!requireManageRole(req, res)) return;
 
   const { id } = req.params;
-  const body = updateSchema.parse(req.body);
+  const body = updateSchema.parse(req.body || {});
 
-  const check = await pool.query(`SELECT id, status FROM car_logbooks WHERE id=$1 AND deleted_at IS NULL`, [id]);
+  const check = await pool.query(`SELECT * FROM car_logbooks WHERE id=$1 AND deleted_at IS NULL`, [id]);
   const current = check.rows[0];
   if (!current) return res.status(404).json({ error: 'Introuvable' });
   if (current.status === 'LOCKED') return res.status(400).json({ error: 'Journal verrouillé' });
 
+  const nextPeriodStart = body.period_start ?? ymd(current.period_start);
+  const nextPeriodEnd = body.period_end ?? ymd(current.period_end);
+
+  if (ymd(nextPeriodEnd) < ymd(nextPeriodStart)) {
+    return res.status(400).json({ error: 'La date de fin doit être >= la date de début' });
+  }
+
+  // logbook_type modifiable uniquement en DRAFT
+  if (body.logbook_type && current.status !== 'DRAFT' && body.logbook_type !== current.logbook_type) {
+    return res.status(400).json({ error: 'Type modifiable uniquement en DRAFT' });
+  }
+
+  const nextType = body.logbook_type ?? current.logbook_type;
+
+  const nextObjet = (body.objet !== undefined) ? toNull(body.objet) : current.objet;
+  const nextSign = (body.chauffeur_signature !== undefined) ? toNull(body.chauffeur_signature) : current.chauffeur_signature;
+
+  const nextServiceKm = (body.service_km !== undefined) ? Number(body.service_km) : Number(current.service_km || 0);
+  const nextMissionKm = (body.mission_km !== undefined) ? Number(body.mission_km) : Number(current.mission_km || 0);
+
   await pool.query(
     `
     UPDATE car_logbooks
-    SET period_start=$2, period_end=$3, objet=$4,
-        logbook_type = COALESCE($5, logbook_type)
-    WHERE id=$1
+    SET
+      period_start=$2,
+      period_end=$3,
+      objet=$4,
+      chauffeur_signature=$5,
+      service_km=$6,
+      mission_km=$7,
+      logbook_type=$8
+    WHERE id=$1 AND deleted_at IS NULL
     `,
-    [id, body.period_start, body.period_end, body.objet || null, body.logbook_type || null]
+    [id, nextPeriodStart, nextPeriodEnd, nextObjet, nextSign, nextServiceKm, nextMissionKm, nextType]
   );
 
   res.json({ ok: true });
@@ -361,5 +396,3 @@ exports.softDelete = asyncHandler(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: 'Introuvable' });
   res.json({ ok: true });
 });
-
-

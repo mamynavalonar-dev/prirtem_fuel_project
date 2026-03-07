@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext.jsx';
 import NotificationBell from './NotificationBell.jsx';
 import AnimatedSidebar from './AnimatedSidebar.jsx';
 import ThemeSwitch from './ThemeSwitch.jsx';
+import Modal from './Modal.jsx';
 
 const MENU = {
   common: [
@@ -89,6 +90,10 @@ export default function Layout({ children }) {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // ✅ Modals
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showSessionExpired, setShowSessionExpired] = useState(false);
+
   const menu = useMemo(() => getMenu(user?.role), [user?.role]);
 
   const currentTitle = useMemo(() => {
@@ -150,13 +155,34 @@ export default function Layout({ children }) {
     };
   }, []);
 
-  const handleLogout = useCallback(() => {
-    logout();
-    navigate('/login');
+  const doLogoutAndGoLogin = useCallback(() => {
+    try {
+      logout();
+    } finally {
+      navigate('/login');
+    }
   }, [logout, navigate]);
+
+  const askLogout = useCallback(() => setShowLogoutModal(true), []);
 
   const openMobile = useCallback(() => setMobileOpen(true), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+
+  // ✅ Quand apiFetch lève 401 => event "prirtem:unauthorized"
+  useEffect(() => {
+    const onUnauthorized = () => {
+      // On coupe la session tout de suite (évite boucles 401)
+      try {
+        logout();
+      } catch {
+        // ignore
+      }
+      setShowSessionExpired(true);
+    };
+
+    window.addEventListener('prirtem:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('prirtem:unauthorized', onUnauthorized);
+  }, [logout]);
 
   const mainStyle = useMemo(
     () => ({
@@ -202,7 +228,7 @@ export default function Layout({ children }) {
         isMobile={isMobile}
         isMobileOpen={mobileOpen}
         closeMobile={closeMobile}
-        onLogout={handleLogout}
+        onLogout={askLogout}
       />
 
       <main style={mainStyle}>
@@ -231,10 +257,9 @@ export default function Layout({ children }) {
 
             {/* ✅ Switch thème AVANT la cloche */}
             <ThemeSwitch />
-
             <NotificationBell />
 
-            <button className="iconBtn" onClick={handleLogout} aria-label="Déconnexion">
+            <button className="iconBtn" onClick={askLogout} aria-label="Déconnexion">
               <ion-icon name="log-out-outline" style={{ fontSize: 22 }}></ion-icon>
             </button>
           </div>
@@ -244,6 +269,57 @@ export default function Layout({ children }) {
           <MemoChildren>{children}</MemoChildren>
         </section>
       </main>
+
+      {/* ✅ MODAL : confirmation déconnexion */}
+      {showLogoutModal && (
+        <Modal title="Déconnexion" onClose={() => setShowLogoutModal(false)} width={520}>
+          <div className="muted" style={{ marginBottom: 14 }}>
+            Voulez-vous vraiment vous déconnecter ?
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button className="btn btn-outline" onClick={() => setShowLogoutModal(false)}>
+              Annuler
+            </button>
+            <button
+              className="btn btn-danger"
+              data-autofocus="true"
+              onClick={doLogoutAndGoLogin}
+            >
+              Se déconnecter
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ✅ MODAL : session expirée */}
+      {showSessionExpired && (
+        <Modal
+          title="Session expirée"
+          onClose={() => {
+            setShowSessionExpired(false);
+            navigate('/login');
+          }}
+          width={520}
+        >
+          <div className="muted" style={{ marginBottom: 14 }}>
+            Votre session n’est plus valide (401). Veuillez vous reconnecter.
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button
+              className="btn"
+              data-autofocus="true"
+              onClick={() => {
+                setShowSessionExpired(false);
+                navigate('/login');
+              }}
+            >
+              Se reconnecter
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

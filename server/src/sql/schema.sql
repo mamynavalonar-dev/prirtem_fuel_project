@@ -467,6 +467,17 @@ CREATE TABLE IF NOT EXISTS notification_reads (
 
 CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads(user_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_admin_active
+ON users(role)
+WHERE role = 'ADMIN'::user_role AND is_active = true;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_logistique_active
+ON users(role)
+WHERE role = 'LOGISTIQUE'::user_role AND is_active = true;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_raf_active
+ON users(role)
+WHERE role = 'RAF'::user_role AND is_active = true;
 
 
 COMMIT;

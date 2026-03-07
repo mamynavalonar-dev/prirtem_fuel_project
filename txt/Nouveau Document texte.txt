@@ -1,0 +1,5 @@
+T'as reussi ! Bien continuant , en se basant sur tous mes codes (dans "codeTerminer.txt" là que j'uplaod)que je t'envoi là justement , donner moi le code du diagramme de cas d'utilisation de mon projet pour le deposer sur PlantUML ,voici un exemple venant de PlantUML:  
+@startuml
+Bob -> Alice : hello
+@enduml
+remarque : fait le necessaire pourque tous soit bien là aucun oublie

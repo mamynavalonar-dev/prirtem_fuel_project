@@ -8,6 +8,10 @@ const fs = require('fs');
 
 const { runMigrations } = require('./sql/migrate');
 
+// ✅ pour l’alias /api/vehicles
+const { authRequired } = require('./middleware/auth');
+const metaController = require('./controllers/metaController');
+
 // Routes
 const authRoutes = require('./routes/auth');
 const metaRoutes = require('./routes/meta');
@@ -34,6 +38,11 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health Check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+// ✅ Alias legacy: /api/vehicles (évite 404 si le client appelle encore l’ancienne route)
+app.get('/api/vehicles', authRequired, (req, res, next) => {
+  Promise.resolve(metaController.listVehicles(req, res)).catch(next);
+});
 
 // API Routes
 app.use('/api/auth', authRoutes);
