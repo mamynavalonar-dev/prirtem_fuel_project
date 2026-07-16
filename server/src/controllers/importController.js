@@ -6,7 +6,7 @@ const { parseVehicleFuelWorkbook } = require('../utils/excel/parseVehicleFuel');
 const { parseGeneratorWorkbook } = require('../utils/excel/parseGenerator');
 const { parseOtherWorkbook } = require('../utils/excel/parseOther');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 async function ensureVehicle(plate) {
   if (!plate) return null;
