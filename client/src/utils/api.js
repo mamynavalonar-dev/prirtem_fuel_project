@@ -37,7 +37,7 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-export async function apiFetch(path, { token, method = 'GET', body, headers, retries = 2 } = {}) {
+export async function apiFetch(path, { token, method = 'GET', body, headers, retries = 4 } = {}) {
   const h = {
     'Content-Type': 'application/json',
     ...(headers || {})
@@ -87,7 +87,8 @@ export async function apiFetch(path, { token, method = 'GET', body, headers, ret
       );
 
       if (isNetworkError && attempt < retries) {
-        await wait(1000 * (attempt + 1)); // 1s, puis 2s
+        // Backoff exponentiel : 1s, 2s, 4s, 8s, ...
+        await wait(1000 * (2 ** attempt));
         continue;
       }
 

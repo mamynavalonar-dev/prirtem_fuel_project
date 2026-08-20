@@ -23,6 +23,7 @@ async function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
   const [type, token] = header.split(' ');
   if (type !== 'Bearer' || !token) {
+    // Generic error to prevent user enumeration
     return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
 
@@ -30,11 +31,9 @@ async function authRequired(req, res, next) {
   try {
     payload = jwt.verify(token, process.env.JWT_SECRET);
   } catch (e) {
-    return res.status(401).json({ error: 'INVALID_TOKEN' });
+    // Generic error to prevent user enumeration
+    return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
-
-  // Backward compatible: anciens tokens n’ont pas tv
-  const tv = Number.isFinite(payload?.tv) ? payload.tv : 0;
 
   try {
     const { rows } = await pool.query(
@@ -43,11 +42,17 @@ async function authRequired(req, res, next) {
     );
     const u = rows[0];
     if (!u || !u.is_active || u.is_blocked) {
+      // Generic error to prevent user enumeration
       return res.status(401).json({ error: 'UNAUTHORIZED' });
     }
 
+    // For backward compatibility: old tokens may not have tv
+    // We treat missing tv as 0, but we should phase out old tokens
+    const tv = Number.isFinite(payload?.tv) ? payload.tv : 0;
+
     if ((u.token_version || 0) !== tv) {
-      return res.status(401).json({ error: 'REVOKED' });
+      // Token revoked (e.g., after password change)
+      return res.status(401).json({ error: 'UNAUTHORIZED' });
     }
 
     req.user = {
@@ -58,7 +63,9 @@ async function authRequired(req, res, next) {
 
     return next();
   } catch (e) {
-    return res.status(500).json({ error: 'AUTH_DB_ERROR' });
+    // Log the error internally (not exposed to user)
+    console.error('[AUTH_ERROR]', e);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 }
 

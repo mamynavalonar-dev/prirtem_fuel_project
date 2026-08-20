@@ -36,6 +36,9 @@ export function AuthProvider({ children }) {
     setUser(null);
     try {
       localStorage.removeItem(LS_KEY);
+      // Clear login-specific storage items
+      localStorage.removeItem("rememberLogin");
+      localStorage.removeItem("savedUsername");
     } catch {
       // ignore
     }

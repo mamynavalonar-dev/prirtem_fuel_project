@@ -1,3 +1,4 @@
+require('dotenv').config();
 // server/src/sql/migrate.js
 const { pool } = require('../db');
 
@@ -43,6 +44,53 @@ async function runMigrations() {
       deleted_at TIMESTAMPTZ NULL
     );
   `);
+
+  // ====== CAR REQUESTS: missing columns ======
+  await pool.query(`
+    ALTER TABLE car_requests
+      ADD COLUMN IF NOT EXISTS requester_service TEXT NULL,
+      ADD COLUMN IF NOT EXISTS requester_name TEXT NULL,
+      ADD COLUMN IF NOT EXISTS requester_contact TEXT NULL,
+      ADD COLUMN IF NOT EXISTS trip_type TEXT NULL,
+      ADD COLUMN IF NOT EXISTS passenger_count INTEGER NULL,
+      ADD COLUMN IF NOT EXISTS departure_place TEXT NULL,
+      ADD COLUMN IF NOT EXISTS destination_place TEXT NULL,
+      ADD COLUMN IF NOT EXISTS itinerary TEXT NULL,
+      ADD COLUMN IF NOT EXISTS people TEXT NULL,
+      ADD COLUMN IF NOT EXISTS depart_time_wanted TIME NULL,
+      ADD COLUMN IF NOT EXISTS return_time_expected TIME NULL,
+      ADD COLUMN IF NOT EXISTS vehicle_hint TEXT NULL,
+      ADD COLUMN IF NOT EXISTS driver_hint TEXT NULL,
+      ADD COLUMN IF NOT EXISTS observations TEXT NULL,
+      ADD COLUMN IF NOT EXISTS actual_out_time TIME NULL,
+      ADD COLUMN IF NOT EXISTS actual_return_time TIME NULL,
+      ADD COLUMN IF NOT EXISTS odometer_start INTEGER NULL,
+      ADD COLUMN IF NOT EXISTS odometer_end INTEGER NULL,
+      ADD COLUMN IF NOT EXISTS fuel_level_start INTEGER NULL,
+      ADD COLUMN IF NOT EXISTS fuel_level_end INTEGER NULL
+  `);
+
+  // Add check constraint for trip_type if not exists
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'chk_car_requests_trip_type'
+          AND table_name = 'car_requests'
+      ) THEN
+        ALTER TABLE car_requests
+          ADD CONSTRAINT chk_car_requests_trip_type
+          CHECK (trip_type IS NULL OR trip_type IN ('SERVICE','MISSION','URGENCE'));
+      END IF;
+    END $$;
+  `);
+
+  // Ensure required fields are NOT NULL where appropriate (based on controller validation)
+  // requester_service, requester_name, requester_contact, trip_type are required (min 1)
+  // We'll set them NOT NULL after ensuring existing rows have values or we can keep nullable and rely on validation.
+  // For safety, we keep them NULL and let application validation enforce.
+  // However we can set default empty string? Better keep nullable and let app validate.
 
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_dva_vehicle ON driver_vehicle_assignments(vehicle_id);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_dva_driver ON driver_vehicle_assignments(driver_id);`);
@@ -261,6 +309,12 @@ async function runMigrations() {
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_car_logbooks_deleted_by ON car_logbooks(deleted_by);
+  `);
+
+  // ====== USERS: token_version for session revocation ======
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
   `);
 }
 

@@ -7,9 +7,22 @@ const { sendResetEmail } = require('../utils/mailer');
 
 const ROLES = ['DEMANDEUR', 'LOGISTIQUE', 'RAF', 'ADMIN'];
 
+// Password strength schema (for setting/resetting passwords)
+const passwordSchema = z.string()
+  .min(8, 'Mot de passe trop court (minimum 8 caractères)')
+  .regex(/[a-z]/, 'Doit contenir au moins une lettre minuscule')
+  .regex(/[A-Z]/, 'Doit contenir au moins une lettre majuscule')
+  .regex(/[0-9]/, 'Doit contenir au moins un chiffre')
+  .regex(/[^a-zA-Z0-9]/, 'Doit contenir au moins un caractère spécial');
+
 function signToken(user) {
   // tv = token_version (permet révocation sessions)
   const tv = Number.isFinite(user.token_version) ? user.token_version : 0;
+
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET is not defined in environment variables');
+  }
 
   return jwt.sign(
     {
@@ -20,7 +33,7 @@ function signToken(user) {
       last_name: user.last_name,
       tv
     },
-    process.env.JWT_SECRET,
+    jwtSecret,
     { expiresIn: '12h' }
   );
 }
@@ -31,7 +44,7 @@ const registerSchema = z.object({
   username: z.string().min(3),
   email: z.string().email(),
   role: z.enum(ROLES),
-  password: z.string().min(6)
+  password: passwordSchema // Strong password required
 });
 
 async function register(req, res) {
@@ -82,10 +95,12 @@ async function register(req, res) {
  * ✅ Login:
  * - refuse si is_active=false ou is_blocked=true
  * - met à jour last_login_at
+ * Note: We do not enforce password strength on login to allow existing passwords.
+ *       Users should be prompted to update weak passwords via a separate process.
  */
 const loginSchema = z.object({
   username: z.string().min(1),
-  password: z.string().min(1),
+  password: z.string().min(1), // Only require non-empty
   role: z.enum(ROLES).optional()
 });
 
@@ -105,11 +120,13 @@ async function login(req, res) {
 
   const user = rows[0];
   if (!user || !user.is_active || user.is_blocked) {
+    // Generic error to prevent user enumeration
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
 
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) {
+    // Generic error to prevent user enumeration
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
 
@@ -147,12 +164,13 @@ async function forgotPassword(req, res) {
   );
   const user = rows[0];
   if (!user) {
+    // Do not reveal whether the email exists
     return res.json({ ok: true });
   }
 
   const tokenPlain = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
   const tokenHash = await bcrypt.hash(tokenPlain, 10);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 30);
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
 
   await pool.query(
     `INSERT INTO password_resets (id, user_id, token_hash, expires_at)
@@ -166,7 +184,7 @@ async function forgotPassword(req, res) {
 
 const resetSchema = z.object({
   token: z.string().min(10),
-  password: z.string().min(6)
+  password: passwordSchema // Strong password required for reset
 });
 
 async function resetPassword(req, res) {

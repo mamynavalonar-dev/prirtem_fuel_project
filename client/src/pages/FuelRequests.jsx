@@ -140,7 +140,8 @@ export default function FuelRequests() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
     request_type: 'SERVICE',
-    request_date: ymdToday(), // Date ticket
+    request_date: ymdToday(),
+    end_date: ymdToday(),
     objet: '',
     amount_estimated_ar: '',
     amount_estimated_words: '',
@@ -216,6 +217,8 @@ export default function FuelRequests() {
     const amount = Number(form.amount_estimated_ar || 0);
     if (!form.objet.trim()) return alert('Objet requis');
     if (!form.request_date) return alert('Date ticket requise');
+    if (!form.end_date) return alert('Date de fin requise');
+    if (form.end_date < form.request_date) return alert('La date de fin doit être postérieure ou égale à la date du ticket');
     if (!Number.isFinite(amount) || amount <= 0) return alert('Montant invalide');
 
     setBusy(true);
@@ -227,7 +230,7 @@ export default function FuelRequests() {
         amount_estimated_ar: Math.floor(amount),
         amount_estimated_words: form.amount_estimated_words || `${numberToFrWords(amount)} ariary`,
         request_date: form.request_date,
-        end_date: form.request_date,
+        end_date: form.end_date,
       };
 
       await apiFetch('/api/requests/fuel', {
@@ -370,6 +373,15 @@ export default function FuelRequests() {
                   value={form.request_date}
                   onChange={(e) => setForm((f) => ({ ...f, request_date: e.target.value }))}
                   data-autofocus="true"
+                />
+              </div>
+
+              <div className="field">
+                <label>Date fin</label>
+                <input
+                  type="date"
+                  value={form.end_date}
+                  onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
                 />
               </div>
 

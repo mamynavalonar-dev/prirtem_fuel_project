@@ -1,46 +1,53 @@
-// client/src/components/Layout.jsx
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../auth/AuthContext.jsx';
-import NotificationBell from './NotificationBell.jsx';
-import AnimatedSidebar from './AnimatedSidebar.jsx';
-import ThemeSwitch from './ThemeSwitch.jsx';
-import Modal from './Modal.jsx';
+// ────────────────── client/src/components/Layout.jsx ──────────────────
+/**
+ * CORRECTIF ARCHITECTURE APPLIQUÉ : logout() du AuthContext est
+ * désormais async (appelle POST /api/auth/logout pour effacer le cookie
+ * de session côté serveur). doLogoutAndGoLogin attend cet appel avant de
+ * naviguer vers /login.
+ */
+import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+
+import { useAuth } from "../auth/AuthContext.jsx";
+import NotificationBell from "./NotificationBell.jsx";
+import AnimatedSidebar from "./AnimatedSidebar.jsx";
+import ThemeSwitch from "./ThemeSwitch.jsx";
+import Modal from "./Modal.jsx";
 
 const MENU = {
   common: [
-    { to: '/app', label: 'Dashboard' },
-    { to: '/app/fuel', label: 'Suivi carburant' },
-    { to: '/app/calendar', label: 'Calendrier' }
+    { to: "/app", label: "Dashboard" },
+    { to: "/app/fuel", label: "Suivi carburant" },
+    { to: "/app/calendar", label: "Calendrier" },
   ],
   demandeur: [
-    { to: '/app/requests/fuel', label: 'Demande carburant' },
-    { to: '/app/requests/car', label: 'Demande voiture' }
+    { to: "/app/requests/fuel", label: "Demande carburant" },
+    { to: "/app/requests/car", label: "Demande voiture" },
   ],
   logistique: [
-    { to: '/app/import', label: 'Import Excel' },
-    { to: '/app/requests/fuel/manage', label: 'Valid. carburant' },
-    { to: '/app/requests/car/manage', label: 'Valid. voiture' },
-    { to: '/app/logbooks', label: 'Journal de bord' },
-    { to: '/app/meta', label: 'Flotte & Chauffeurs' },
-    { to: '/app/trash', label: 'Corbeille' }
+    { to: "/app/import", label: "Import Excel" },
+    { to: "/app/requests/fuel/manage", label: "Valid. carburant" },
+    { to: "/app/requests/car/manage", label: "Valid. voiture" },
+    { to: "/app/logbooks", label: "Journal de bord" },
+    { to: "/app/meta", label: "Flotte & Chauffeurs" },
+    { to: "/app/trash", label: "Corbeille" },
   ],
   raf: [
-    { to: '/app/requests/fuel/raf', label: 'Visa RAF carburant' },
-    { to: '/app/requests/car/raf', label: 'Visa RAF voiture' },
-    { to: '/app/logbooks', label: 'Journal de bord' }
+    { to: "/app/requests/fuel/raf", label: "Visa RAF carburant" },
+    { to: "/app/requests/car/raf", label: "Visa RAF voiture" },
+    { to: "/app/logbooks", label: "Journal de bord" },
   ],
   admin: [
-    { to: '/app', label: 'Dashboard' },
-    { to: '/app/users', label: 'Utilisateurs' },
-    { to: '/app/fuel', label: 'Suivi carburant' },
-    { to: '/app/import', label: 'Import Excel' },
-    { to: '/app/meta', label: 'Flotte & Chauffeurs' },
-    { to: '/app/requests/fuel/manage', label: 'Valid. carburant' },
-    { to: '/app/requests/car/manage', label: 'Valid. voiture' },
-    { to: '/app/logbooks', label: 'Journal de bord' },
-    { to: '/app/trash', label: 'Corbeille' }
-  ]
+    { to: "/app", label: "Dashboard" },
+    { to: "/app/users", label: "Utilisateurs" },
+    { to: "/app/fuel", label: "Suivi carburant" },
+    { to: "/app/import", label: "Import Excel" },
+    { to: "/app/meta", label: "Flotte & Chauffeurs" },
+    { to: "/app/requests/fuel/manage", label: "Valid. carburant" },
+    { to: "/app/requests/car/manage", label: "Valid. voiture" },
+    { to: "/app/logbooks", label: "Journal de bord" },
+    { to: "/app/trash", label: "Corbeille" },
+  ],
 };
 
 function uniqByTo(items) {
@@ -56,25 +63,26 @@ function uniqByTo(items) {
 }
 
 function isVisaMenuItem(it) {
-  const label = String(it?.label || '').toLowerCase();
-  const to = String(it?.to || '').toLowerCase();
-  return label.includes('visa') || to.includes('/raf');
+  const label = String(it?.label || "").toLowerCase();
+  const to = String(it?.to || "").toLowerCase();
+  return label.includes("visa") || to.includes("/raf");
 }
 
 function getMenu(role) {
   const base = [...MENU.common];
+  if (role === "DEMANDEUR") return uniqByTo([...base, ...MENU.demandeur]);
+  if (role === "LOGISTIQUE") return uniqByTo([...base, ...MENU.logistique]);
+  if (role === "RAF") return uniqByTo([...base, ...MENU.raf]);
 
-  if (role === 'DEMANDEUR') return uniqByTo([...base, ...MENU.demandeur]);
-  if (role === 'LOGISTIQUE') return uniqByTo([...base, ...MENU.logistique]);
-  if (role === 'RAF') return uniqByTo([...base, ...MENU.raf]);
-
-  // ✅ ADMIN = tous les menus (common + admin + demandeur + logistique)
-  // ❌ mais sans les menus VISA (RAF)
-  if (role === 'ADMIN') {
-    const all = uniqByTo([...base, ...MENU.admin, ...MENU.demandeur, ...MENU.logistique]);
+  if (role === "ADMIN") {
+    const all = uniqByTo([
+      ...base,
+      ...MENU.admin,
+      ...MENU.demandeur,
+      ...MENU.logistique,
+    ]);
     return all.filter((it) => !isVisaMenuItem(it));
   }
-
   return base;
 }
 
@@ -86,11 +94,9 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // ✅ Modals
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showSessionExpired, setShowSessionExpired] = useState(false);
 
@@ -98,8 +104,6 @@ export default function Layout({ children }) {
 
   const currentTitle = useMemo(() => {
     const path = location.pathname;
-
-    // ✅ Meilleure correspondance: exact d'abord, sinon le préfixe le plus long
     let best = null;
     for (const m of menu) {
       if (!m?.to) continue;
@@ -107,12 +111,11 @@ export default function Layout({ children }) {
         best = m;
         break;
       }
-      if (path.startsWith(m.to + '/')) {
+      if (path.startsWith(m.to + "/")) {
         if (!best || m.to.length > best.to.length) best = m;
       }
     }
-
-    return best?.label || 'PRIRTEM';
+    return best?.label || "PRIRTEM";
   }, [menu, location.pathname]);
 
   const [now, setNow] = useState(() => new Date());
@@ -122,18 +125,18 @@ export default function Layout({ children }) {
   }, []);
 
   const dateLabel = useMemo(() => {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
+    return new Intl.DateTimeFormat("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
     }).format(now);
   }, [now]);
 
   const timeLabel = useMemo(() => {
-    return new Intl.DateTimeFormat('fr-FR', {
-      hour: '2-digit',
-      minute: '2-digit'
+    return new Intl.DateTimeFormat("fr-FR", {
+      hour: "2-digit",
+      minute: "2-digit",
     }).format(now);
   }, [now]);
 
@@ -143,86 +146,80 @@ export default function Layout({ children }) {
       setIsMobile(mobile);
       if (!mobile) setMobileOpen(false);
     };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   useEffect(() => {
     const prev = document.body.style.overflowX;
-    document.body.style.overflowX = 'hidden';
+    document.body.style.overflowX = "hidden";
     return () => {
       document.body.style.overflowX = prev;
     };
   }, []);
 
-  const doLogoutAndGoLogin = useCallback(() => {
+  // 📨 logout() est désormais async (appelle POST /api/auth/logout pour
+  // effacer le cookie de session côté serveur avant de naviguer).
+  const doLogoutAndGoLogin = useCallback(async () => {
     try {
-      logout();
+      await logout();
     } finally {
-      navigate('/login');
+      navigate("/login");
     }
   }, [logout, navigate]);
 
   const askLogout = useCallback(() => setShowLogoutModal(true), []);
-
   const openMobile = useCallback(() => setMobileOpen(true), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  // ✅ Quand apiFetch lève 401 => event "prirtem:unauthorized"
   useEffect(() => {
     const onUnauthorized = () => {
-      // On coupe la session tout de suite (évite boucles 401)
-      try {
-        logout();
-      } catch {
-        // ignore
-      }
       setShowSessionExpired(true);
     };
-
-    window.addEventListener('prirtem:unauthorized', onUnauthorized);
-    return () => window.removeEventListener('prirtem:unauthorized', onUnauthorized);
-  }, [logout]);
+    window.addEventListener("prirtem:unauthorized", onUnauthorized);
+    return () =>
+      window.removeEventListener("prirtem:unauthorized", onUnauthorized);
+  }, []);
 
   const mainStyle = useMemo(
     () => ({
-      marginLeft: isMobile ? 0 : 'var(--app-main-offset, 110px)',
+      marginLeft: isMobile ? 0 : "var(--app-main-offset, 110px)",
       padding: 16,
-      height: '100vh',
-      boxSizing: 'border-box',
-      display: 'flex',
-      flexDirection: 'column',
+      height: "100vh",
+      boxSizing: "border-box",
+      display: "flex",
+      flexDirection: "column",
       gap: 16,
-      overflow: 'hidden',
-      background: 'var(--bg)'
+      overflow: "hidden",
+      background: "var(--bg)",
     }),
-    [isMobile]
+    [isMobile],
   );
 
   const topbarStyle = useMemo(
     () => ({
       marginBottom: 0,
       borderRadius: 14,
-      border: 'none',
-      flex: '0 0 auto'
+      border: "none",
+      flex: "0 0 auto",
     }),
-    []
+    [],
   );
 
   const contentContainerStyle = useMemo(
     () => ({
-      flex: '1 1 auto',
+      flex: "1 1 auto",
       minHeight: 0,
-      overflow: 'auto',
+      overflow: "auto",
       borderRadius: 14,
-      border: 'none',
-      padding: 16
+      border: "none",
+      padding: 16,
     }),
-    []
+    [],
   );
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
       <AnimatedSidebar
         menu={menu}
         isMobile={isMobile}
@@ -235,32 +232,43 @@ export default function Layout({ children }) {
         <div className="topbar card" style={topbarStyle}>
           <div className="topbarLeft">
             {isMobile && (
-              <button className="iconBtn" onClick={openMobile} aria-label="Ouvrir le menu">
-                <ion-icon name="menu-outline" style={{ fontSize: 24 }}></ion-icon>
+              <button
+                className="iconBtn"
+                onClick={openMobile}
+                aria-label="Ouvrir le menu"
+              >
+                <ion-icon
+                  name="menu-outline"
+                  style={{ fontSize: 24 }}
+                ></ion-icon>
               </button>
             )}
             <div className="topbarTitle" style={{ fontSize: 18 }}>
               {currentTitle}
             </div>
           </div>
-
           <div className="topbarRight">
             <div className="topbarClock">
               <div className="topbarClockDate">{dateLabel}</div>
               <div className="topbarClockTime">{timeLabel}</div>
             </div>
-
             <div className="topbarUser">
-              <div className="topbarUserName">{user?.username || 'Utilisateur'}</div>
-              <div className="topbarUserRole">{user?.role || ''}</div>
+              <div className="topbarUserName">
+                {user?.username || "Utilisateur"}
+              </div>
+              <div className="topbarUserRole">{user?.role || ""}</div>
             </div>
-
-            {/* ✅ Switch thème AVANT la cloche */}
             <ThemeSwitch />
             <NotificationBell />
-
-            <button className="iconBtn" onClick={askLogout} aria-label="Déconnexion">
-              <ion-icon name="log-out-outline" style={{ fontSize: 22 }}></ion-icon>
+            <button
+              className="iconBtn"
+              onClick={askLogout}
+              aria-label="Déconnexion"
+            >
+              <ion-icon
+                name="log-out-outline"
+                style={{ fontSize: 22 }}
+              ></ion-icon>
             </button>
           </div>
         </div>
@@ -270,15 +278,20 @@ export default function Layout({ children }) {
         </section>
       </main>
 
-      {/* ✅ MODAL : confirmation déconnexion */}
       {showLogoutModal && (
-        <Modal title="Déconnexion" onClose={() => setShowLogoutModal(false)} width={520}>
+        <Modal
+          title="Déconnexion"
+          onClose={() => setShowLogoutModal(false)}
+          width={520}
+        >
           <div className="muted" style={{ marginBottom: 14 }}>
             Voulez-vous vraiment vous déconnecter ?
           </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <button className="btn btn-outline" onClick={() => setShowLogoutModal(false)}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button
+              className="btn btn-outline"
+              onClick={() => setShowLogoutModal(false)}
+            >
               Annuler
             </button>
             <button
@@ -292,27 +305,25 @@ export default function Layout({ children }) {
         </Modal>
       )}
 
-      {/* ✅ MODAL : session expirée */}
       {showSessionExpired && (
         <Modal
           title="Session expirée"
           onClose={() => {
             setShowSessionExpired(false);
-            navigate('/login');
+            navigate("/login");
           }}
           width={520}
         >
           <div className="muted" style={{ marginBottom: 14 }}>
-            Votre session n’est plus valide (401). Veuillez vous reconnecter.
+            Votre session n'est plus valide. Veuillez vous reconnecter.
           </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <button
               className="btn"
               data-autofocus="true"
               onClick={() => {
                 setShowSessionExpired(false);
-                navigate('/login');
+                navigate("/login");
               }}
             >
               Se reconnecter
