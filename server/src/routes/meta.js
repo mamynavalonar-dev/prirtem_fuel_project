@@ -36,7 +36,7 @@ router.put('/drivers/:id', requireRole('LOGISTIQUE', 'ADMIN'), asyncHandler(upda
 router.delete('/drivers/:id', requireRole('LOGISTIQUE', 'ADMIN'), asyncHandler(deleteDriver));
 
 // Affectations (historique)
-router.get('/assignments', asyncHandler(listAssignments));
+router.get('/assignments', requireRole('LOGISTIQUE', 'ADMIN'), asyncHandler(listAssignments));
 router.post('/assignments', requireRole('LOGISTIQUE', 'ADMIN'), asyncHandler(createAssignment));
 router.patch('/vehicles/:id/unassign', requireRole('LOGISTIQUE', 'ADMIN'), asyncHandler(unassignVehicle));
 

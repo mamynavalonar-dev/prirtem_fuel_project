@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { pool } = require('../db');
+const { AUTH_COOKIE_NAME } = require('../controllers/authController');
 
 /**
  * Permissions "de base" par rôle (tu peux ajuster)
@@ -21,8 +22,9 @@ function computeEffectivePerms(role, extra = []) {
 
 async function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
-  const [type, token] = header.split(' ');
-  if (type !== 'Bearer' || !token) {
+  const [type, bearerToken] = header.split(' ');
+  const token = req.cookies?.[AUTH_COOKIE_NAME] || (type === 'Bearer' ? bearerToken : null);
+  if (!token) {
     // Generic error to prevent user enumeration
     return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
@@ -46,9 +48,10 @@ async function authRequired(req, res, next) {
       return res.status(401).json({ error: 'UNAUTHORIZED' });
     }
 
-    // For backward compatibility: old tokens may not have tv
-    // We treat missing tv as 0, but we should phase out old tokens
-    const tv = Number.isFinite(payload?.tv) ? payload.tv : 0;
+    if (!Number.isFinite(payload?.tv)) {
+      return res.status(401).json({ error: 'UNAUTHORIZED' });
+    }
+    const tv = payload.tv;
 
     if ((u.token_version || 0) !== tv) {
       // Token revoked (e.g., after password change)

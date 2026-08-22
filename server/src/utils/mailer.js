@@ -1,48 +1,35 @@
-/**
- * ────────────────── server/src/utils/mailer.js ──────────────────
- * CORRECTIF APPLIQUÉ : URL dynamique via env et meilleure gestion des logs.
- */
 const nodemailer = require('nodemailer');
 
-async function sendResetEmail(to, tokenPlain) {
-  // Utilise APP_CLIENT_URL s'il est défini, sinon fallback local
-  const appUrl = process.env.APP_CLIENT_URL || 'http://localhost:5173';
-  const resetLink = `${appUrl}/reset?email=${encodeURIComponent(to)}&token=${encodeURIComponent(tokenPlain)}`;
+function buildResetLink(tokenPlain) {
+  const appUrl = process.env.APP_CLIENT_URL;
+  if (!appUrl) throw new Error('APP_CLIENT_URL is required');
 
-  const host = process.env.SMTP_HOST;
-  const port = process.env.SMTP_PORT;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || 'no-reply@prirtem.local';
-
-  // Si SMTP non configuré, log en console (Mode DEV)
-  if (!host || !port || !user || !pass) {
-    console.log('⚠️ [MAIL MOCK] SMTP non configuré.');
-    console.log(`📨 À: ${to}`);
-    console.log(`🔗 Lien: ${resetLink}`);
-    return;
-  }
-
-  try {
-    const transporter = nodemailer.createTransport({
-      host,
-      port: Number(port),
-      secure: Number(port) === 465, // true pour 465, false pour les autres
-      auth: { user, pass }
-    });
-
-    await transporter.sendMail({
-      from,
-      to,
-      subject: 'PRIRTEM - Réinitialisation mot de passe',
-      text: `Bonjour,\n\nVous avez demandé la réinitialisation de votre mot de passe.\nCliquez sur ce lien pour continuer : ${resetLink}\n\nCe lien est valide 30 minutes.`,
-      html: `<p>Bonjour,</p><p>Vous avez demandé la réinitialisation de votre mot de passe.</p><p><a href="${resetLink}">Cliquez ici pour réinitialiser votre mot de passe</a></p><p><i>Ce lien est valide 30 minutes.</i></p>`
-    });
-    console.log(`✅ Email envoyé à ${to}`);
-  } catch (error) {
-    console.error('❌ Erreur envoi email:', error);
-    // On ne throw pas forcément l'erreur pour ne pas bloquer le front, mais on loggue
-  }
+  const url = new URL('/reset', appUrl);
+  url.searchParams.set('token', tokenPlain);
+  return url.toString();
 }
 
-module.exports = { sendResetEmail };
+async function sendResetEmail(to, tokenPlain) {
+  const { SMTP_HOST: host, SMTP_PORT: port, SMTP_USER: user, SMTP_PASS: pass } = process.env;
+  if (!host || !port || !user || !pass) {
+    throw new Error('SMTP is not configured');
+  }
+
+  const resetLink = buildResetLink(tokenPlain);
+  const transporter = nodemailer.createTransport({
+    host,
+    port: Number(port),
+    secure: Number(port) === 465,
+    auth: { user, pass }
+  });
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || 'no-reply@prirtem.local',
+    to,
+    subject: 'PRIRTEM - Réinitialisation du mot de passe',
+    text: `Un changement de mot de passe a été demandé. Ouvrez ce lien dans les 30 minutes : ${resetLink}`,
+    html: `<p>Un changement de mot de passe a été demandé.</p><p><a href="${resetLink}">Réinitialiser le mot de passe</a></p><p>Ce lien expire dans 30 minutes.</p>`
+  });
+}
+
+module.exports = { buildResetLink, sendResetEmail };

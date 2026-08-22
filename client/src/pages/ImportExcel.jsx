@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.jsx';
-import { apiFetch, getApiUrl } from '../utils/api.js';
+import { apiFetch, getApiUrl, getCsrfToken } from '../utils/api.js';
 import './ImportExcel.css';
 
 function fmtRole(role) {
@@ -36,6 +36,17 @@ function fmtBytes(n) {
   return `${x.toFixed(digits)} ${units[i]}`;
 }
 
+function formatImportError(code) {
+  const messages = {
+    WORKBOOK_SHEET_LIMIT_EXCEEDED: 'Le classeur dépasse la limite de 64 feuilles.',
+    WORKBOOK_CELL_LIMIT_EXCEEDED: 'Le classeur dépasse la limite globale de cellules autorisée.',
+    WORKSHEET_LIMIT_EXCEEDED: 'Une feuille dépasse 10 000 lignes ou 100 colonnes.',
+    XLSX_FILE_REQUIRED: 'Seuls les fichiers .xlsx sont acceptés.',
+    TYPE_NOT_SUPPORTED: 'Le type du classeur n’est pas reconnu.'
+  };
+  return messages[code] || code || '';
+}
+
 export default function ImportExcel() {
   const { token, user } = useAuth();
 
@@ -60,7 +71,7 @@ export default function ImportExcel() {
   const isUploader = ['ADMIN', 'LOGISTIQUE'].includes(user?.role);
   const canSeeHistory = ['ADMIN', 'LOGISTIQUE', 'RAF'].includes(user?.role);
 
-  const allowedExt = useMemo(() => new Set(['.xlsx', '.xls', '.csv']), []);
+  const allowedExt = useMemo(() => new Set(['.xlsx']), []);
 
   function addFiles(incoming) {
     const list = Array.from(incoming || []);
@@ -136,8 +147,10 @@ export default function ImportExcel() {
       xhrRef.current = xhr;
 
       xhr.open('POST', `${getApiUrl()}${path}`);
+      xhr.withCredentials = true;
 
-      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      const csrfToken = getCsrfToken();
+      if (csrfToken) xhr.setRequestHeader('X-CSRF-Token', csrfToken);
 
       xhr.upload.onprogress = (e) => {
         if (!e.lengthComputable) return;
@@ -217,7 +230,7 @@ export default function ImportExcel() {
           <div>
             <h2 style={{ margin: 0 }}>Import Excel</h2>
             <div className="muted" style={{ marginTop: 6 }}>
-              Formats: <b>.xlsx</b>, <b>.xls</b>, <b>.csv</b> • Taille max: <b>25 Mo</b>
+              Format: <b>.xlsx</b> • Taille max: <b>5 Mo</b> • Maximum: <b>64 feuilles</b>
             </div>
           </div>
         </div>
@@ -255,7 +268,7 @@ export default function ImportExcel() {
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx"
                 style={{ display: 'none' }}
                 onChange={(e) => addFiles(e.target.files)}
               />
@@ -337,7 +350,7 @@ export default function ImportExcel() {
                         <td>{r.file}</td>
                         <td>{r.type || '-'}</td>
                         <td>{r.inserted ?? '-'}</td>
-                        <td>{r.error || ''}</td>
+                        <td>{formatImportError(r.error)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -482,7 +495,7 @@ export default function ImportExcel() {
                             <td><span className={`ix-status ${cls}`}>{st || '—'}</span></td>
                             <td>{f.inserted_rows ?? ''}</td>
                             <td>{f.processed_at ? new Date(f.processed_at).toLocaleString('fr-FR') : ''}</td>
-                            <td>{f.error_message || ''}</td>
+                            <td>{formatImportError(f.error_message)}</td>
                           </tr>
                         );
                       })

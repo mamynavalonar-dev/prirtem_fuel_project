@@ -2,147 +2,105 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { apiFetch } from '../utils/api.js';
 
 const AuthContext = createContext(null);
-
-const LS_KEY = 'prirtem_auth';
-
-function normalizeToken(token) {
-  if (!token) return null;
-  if (typeof token !== 'string') return null;
-  const t = token.trim();
-  if (!t) return null;
-  if (t === 'undefined' || t === 'null') return null;
-  return t;
-}
+const SESSION_MARKER = 'http-only-cookie';
+const AUTH_CHANNEL_NAME = 'prirtem-auth';
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
-
-  // loading = "auth state not yet validated"
   const [loading, setLoading] = useState(true);
+  const channelRef = useRef(null);
 
-  const hydratedRef = useRef(false);
-
-  const persist = useCallback((tokenNew, userNew) => {
-    if (!tokenNew) {
-      localStorage.removeItem(LS_KEY);
-      return;
-    }
-    localStorage.setItem(LS_KEY, JSON.stringify({ token: tokenNew, user: userNew || null }));
+  const broadcast = useCallback((type) => {
+    channelRef.current?.postMessage({ type, at: Date.now() });
   }, []);
 
-  const logout = useCallback(() => {
+  const clearSession = useCallback(() => {
     setToken(null);
     setUser(null);
-    try {
-      localStorage.removeItem(LS_KEY);
-      // Clear login-specific storage items
-      localStorage.removeItem("rememberLogin");
-      localStorage.removeItem("savedUsername");
-    } catch {
-      // ignore
-    }
     setLoading(false);
   }, []);
 
-  // Hydrate from localStorage once
-  useEffect(() => {
+  const logout = useCallback(async () => {
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const t = normalizeToken(parsed?.token);
-        if (t) {
-          setToken(t);
-          if (parsed?.user) setUser(parsed.user);
-          // keep loading=true until /me validates
-        } else {
-          // garbage token in storage -> clear
-          localStorage.removeItem(LS_KEY);
-          setToken(null);
-          setUser(null);
-          setLoading(false);
-        }
-      } else {
-        setLoading(false);
-      }
+      await apiFetch('/api/auth/logout', { method: 'POST', retries: 0 });
     } catch {
-      // ignore parsing errors
-      setLoading(false);
-    } finally {
-      hydratedRef.current = true;
+      // The local state must still be cleared if the server is unavailable.
     }
-  }, []);
+    clearSession();
+    localStorage.removeItem('rememberLogin');
+    localStorage.removeItem('savedUsername');
+    localStorage.removeItem('prirtem_auth');
+    broadcast('SESSION_CLEARED');
+  }, [broadcast, clearSession]);
 
-  // Global "401 unauthorized" hook emitted by apiFetch/apiUpload
   useEffect(() => {
-    const onUnauthorized = () => logout();
-    window.addEventListener('prirtem:unauthorized', onUnauthorized);
-    return () => window.removeEventListener('prirtem:unauthorized', onUnauthorized);
-  }, [logout]);
-
-  // Validate token => /me (prevents pages from firing tons of 401 on refresh)
-  useEffect(() => {
-    if (!hydratedRef.current) return;
-
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    setLoading(true);
-
-    apiFetch('/api/auth/me', { token })
-      .then((d) => {
+    apiFetch('/api/auth/me', { retries: 0, timeoutMs: 5_000 })
+      .then((data) => {
         if (cancelled) return;
-        if (d?.user) {
-          setUser(d.user);
-          persist(token, d.user);
-        }
+        setUser(data.user);
+        setToken(SESSION_MARKER);
         setLoading(false);
       })
-      .catch((err) => {
-        if (cancelled) return;
-        // Token expired/invalid -> logout (and stop the app from spamming 401)
-        if (err?.status === 401) {
-          logout();
-          return;
-        }
-        // other errors: keep session but unblock UI
-        setLoading(false);
+      .catch(() => {
+        if (!cancelled) clearSession();
       });
+    return () => { cancelled = true; };
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return undefined;
+    const channel = new BroadcastChannel(AUTH_CHANNEL_NAME);
+    channelRef.current = channel;
+
+    channel.onmessage = (event) => {
+      if (event.data?.type === 'SESSION_CLEARED') {
+        clearSession();
+        return;
+      }
+      if (event.data?.type !== 'SESSION_CHANGED') return;
+
+      apiFetch('/api/auth/me', { retries: 0, timeoutMs: 5_000 })
+        .then((data) => {
+          setUser(data.user);
+          setToken(SESSION_MARKER);
+          setLoading(false);
+        })
+        .catch(clearSession);
+    };
 
     return () => {
-      cancelled = true;
+      channel.close();
+      channelRef.current = null;
     };
-  }, [token, logout, persist]);
+  }, [clearSession]);
 
-  const login = useCallback((tokenNew, userNew) => {
-    const t = normalizeToken(tokenNew);
-    if (!t) {
-      // avoid storing an invalid token (prevents "Bearer undefined")
-      logout();
-      return;
-    }
-    setToken(t);
+  useEffect(() => {
+    const onUnauthorized = () => {
+      clearSession();
+      broadcast('SESSION_CLEARED');
+    };
+    window.addEventListener('prirtem:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('prirtem:unauthorized', onUnauthorized);
+  }, [broadcast, clearSession]);
+
+  const login = useCallback((userNew) => {
     setUser(userNew || null);
-    persist(t, userNew || null);
-    // loading will be handled by /me validation effect
-  }, [logout, persist]);
+    setToken(userNew ? SESSION_MARKER : null);
+    setLoading(false);
+    if (userNew) broadcast('SESSION_CHANGED');
+  }, [broadcast]);
 
-  const value = useMemo(() => {
-    return {
-      token,
-      user,
-      loading,
-      isAuthed: !!token && !!user,
-      login,
-      // Backward-compat: older pages call setSession(token,user)
-      setSession: login,
-      logout
-    };
-  }, [token, user, loading, login, logout]);
+  const value = useMemo(() => ({
+    token,
+    user,
+    loading,
+    isAuthed: Boolean(user),
+    login,
+    setSession: (_ignoredToken, userNew) => login(userNew),
+    logout
+  }), [token, user, loading, login, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

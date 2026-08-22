@@ -17,14 +17,8 @@ router.post('/:id/approve', asyncHandler(ctrl.rafApprove));
 router.post('/:id/reject', asyncHandler(ctrl.reject));
 router.post('/:id/cancel', asyncHandler(ctrl.cancel));
 
-// Legacy/alt endpoints
-router.patch('/:id/logistics-approve', asyncHandler(ctrl.logisticsApprove));
-router.patch('/:id/raf-approve', asyncHandler(ctrl.rafApprove));
-router.patch('/:id/reject', asyncHandler(ctrl.reject));
-
 // Corbeille (soft delete)
 router.delete('/:id', asyncHandler(ctrl.softDelete));
 
 module.exports = router;
-
 

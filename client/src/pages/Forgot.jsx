@@ -25,12 +25,11 @@ export default function Forgot() {
         {sent ? (
           <p className="muted">
             Si l’adresse existe, un lien de réinitialisation a été envoyé.
-            (Si SMTP n’est pas configuré, le lien s’affiche dans la console du serveur.)
           </p>
         ) : (
           <form onSubmit={onSubmit} className="form">
-            <label className="label">Email</label>
-            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ex: nom@prirtem.mg" />
+            <label className="label" htmlFor="forgot-email">Email</label>
+            <input id="forgot-email" name="email" className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ex: nom@prirtem.mg" />
             {error && <div className="error">{error}</div>}
             <button className="btn" type="submit">Envoyer</button>
           </form>

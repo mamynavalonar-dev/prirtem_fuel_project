@@ -1,10 +1,11 @@
 const express = require('express');
 const asyncHandler = require('../utils/asyncHandler');
-const { authRequired } = require('../middleware/auth');
+const { authRequired, requireRole } = require('../middleware/auth');
 const ctrl = require('../controllers/importController');
 
 const router = express.Router();
 router.use(authRequired);
+router.use(requireRole('ADMIN', 'LOGISTIQUE'));
 
 router.post('/batch', asyncHandler(ctrl.createBatch));
 router.get('/batches', asyncHandler(ctrl.listBatches));

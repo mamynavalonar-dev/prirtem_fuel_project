@@ -1,29 +1,16 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { z } = require('zod');
 const { pool } = require('../db');
 const { sendResetEmail } = require('../utils/mailer');
+const { passwordSchema } = require('../utils/passwordPolicy');
 
-const ROLES = ['DEMANDEUR', 'LOGISTIQUE', 'RAF', 'ADMIN'];
-
-// Password strength schema (for setting/resetting passwords)
-const passwordSchema = z.string()
-  .min(8, 'Mot de passe trop court (minimum 8 caractères)')
-  .regex(/[a-z]/, 'Doit contenir au moins une lettre minuscule')
-  .regex(/[A-Z]/, 'Doit contenir au moins une lettre majuscule')
-  .regex(/[0-9]/, 'Doit contenir au moins un chiffre')
-  .regex(/[^a-zA-Z0-9]/, 'Doit contenir au moins un caractère spécial');
+const AUTH_COOKIE_NAME = 'prirtem_session';
+const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
 
 function signToken(user) {
-  // tv = token_version (permet révocation sessions)
-  const tv = Number.isFinite(user.token_version) ? user.token_version : 0;
-
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret) {
-    throw new Error('JWT_SECRET is not defined in environment variables');
-  }
-
   return jwt.sign(
     {
       id: user.id,
@@ -31,77 +18,42 @@ function signToken(user) {
       role: user.role,
       first_name: user.first_name,
       last_name: user.last_name,
-      tv
+      tv: Number.isFinite(user.token_version) ? user.token_version : 0
     },
-    jwtSecret,
+    process.env.JWT_SECRET,
     { expiresIn: '12h' }
   );
 }
 
-const registerSchema = z.object({
-  first_name: z.string().min(1),
-  last_name: z.string().min(1),
-  username: z.string().min(3),
-  email: z.string().email(),
-  role: z.enum(ROLES),
-  password: passwordSchema // Strong password required
-});
-
-async function register(req, res) {
-  const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
-  }
-
-  const { first_name, last_name, username, email, role, password } = parsed.data;
-  const password_hash = await bcrypt.hash(password, 10);
-
-  const id = uuidv4();
-  try {
-    await pool.query(
-      `INSERT INTO users (id, first_name, last_name, username, email, role, password_hash)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [id, first_name, last_name, username, email, role, password_hash]
-    );
-  } catch (e) {
-    if (String(e.message).includes('users_username_key') || String(e.message).includes('users_email_key')) {
-      return res.status(409).json({ error: 'DUPLICATE_USER' });
-    }
-    throw e;
-  }
-
-  const { rows } = await pool.query(
-    'SELECT id, first_name, last_name, username, email, role, token_version, permissions FROM users WHERE id=$1',
-    [id]
-  );
-  const user = rows[0];
-  const token = signToken(user);
-
-  return res.json({
-    token,
-    user: {
-      id: user.id,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      permissions: user.permissions || []
-    }
-  });
+function authCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_DURATION_MS
+  };
 }
 
-/**
- * ✅ Login:
- * - refuse si is_active=false ou is_blocked=true
- * - met à jour last_login_at
- * Note: We do not enforce password strength on login to allow existing passwords.
- *       Users should be prompted to update weak passwords via a separate process.
- */
+function setAuthCookie(res, token) {
+  res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    permissions: user.permissions || []
+  };
+}
+
 const loginSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1), // Only require non-empty
-  role: z.enum(ROLES).optional()
+  username: z.string().trim().min(1),
+  password: z.string().min(1)
 });
 
 async function login(req, res) {
@@ -110,46 +62,35 @@ async function login(req, res) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
   }
 
-  const username = String(parsed.data.username || '').trim();
-  const password = String(parsed.data.password || '');
-
   const { rows } = await pool.query(
-    'SELECT id, first_name, last_name, username, email, role, password_hash, is_active, is_blocked, token_version, permissions FROM users WHERE username=$1',
-    [username]
+    `SELECT id, first_name, last_name, username, email, role, password_hash,
+            is_active, is_blocked, token_version, permissions
+     FROM users WHERE lower(username)=lower($1)`,
+    [parsed.data.username]
   );
 
   const user = rows[0];
-  if (!user || !user.is_active || user.is_blocked) {
-    // Generic error to prevent user enumeration
+  if (!user || !user.is_active || user.is_blocked || !(await bcrypt.compare(parsed.data.password, user.password_hash))) {
     return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
   }
 
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) {
-    // Generic error to prevent user enumeration
-    return res.status(401).json({ error: 'INVALID_CREDENTIALS' });
-  }
-
-  // Update last login
   await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
-
-  const token = signToken(user);
-
-  return res.json({
-    token,
-    user: {
-      id: user.id,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      permissions: user.permissions || []
-    }
-  });
+  setAuthCookie(res, signToken(user));
+  return res.json({ user: publicUser(user) });
 }
 
-const forgotSchema = z.object({ email: z.string().email() });
+async function logout(req, res) {
+  const options = authCookieOptions();
+  delete options.maxAge;
+  res.clearCookie(AUTH_COOKIE_NAME, options);
+  return res.json({ ok: true });
+}
+
+const forgotSchema = z.object({ email: z.string().trim().email() });
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 async function forgotPassword(req, res) {
   const parsed = forgotSchema.safeParse(req.body);
@@ -157,34 +98,49 @@ async function forgotPassword(req, res) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
   }
 
-  const { email } = parsed.data;
   const { rows } = await pool.query(
-    'SELECT id, email FROM users WHERE email=$1 AND is_active=true AND is_blocked=false',
-    [email]
+    'SELECT id, email FROM users WHERE lower(email)=lower($1) AND is_active=true AND is_blocked=false',
+    [parsed.data.email]
   );
   const user = rows[0];
-  if (!user) {
-    // Do not reveal whether the email exists
-    return res.json({ ok: true });
+  if (!user) return res.json({ ok: true });
+
+  const tokenPlain = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashResetToken(tokenPlain);
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE password_reset_tokens SET used_at=NOW() WHERE user_id=$1 AND used_at IS NULL',
+      [user.id]
+    );
+    await client.query(
+      `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+       VALUES ($1,$2,$3,$4)`,
+      [uuidv4(), user.id, tokenHash, expiresAt]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 
-  const tokenPlain = uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, '');
-  const tokenHash = await bcrypt.hash(tokenPlain, 10);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 30); // 30 minutes
-
-  await pool.query(
-    `INSERT INTO password_resets (id, user_id, token_hash, expires_at)
-     VALUES ($1,$2,$3,$4)`,
-    [uuidv4(), user.id, tokenHash, expiresAt]
-  );
-
-  await sendResetEmail(user.email, tokenPlain);
+  try {
+    await sendResetEmail(user.email, tokenPlain);
+  } catch (error) {
+    // Preserve the anti-enumeration response; operational logs contain no token.
+    console.error('[RESET_EMAIL_ERROR]', error.message);
+  }
   return res.json({ ok: true });
 }
 
 const resetSchema = z.object({
-  token: z.string().min(10),
-  password: passwordSchema // Strong password required for reset
+  token: z.string().length(64),
+  password: passwordSchema
 });
 
 async function resetPassword(req, res) {
@@ -193,34 +149,44 @@ async function resetPassword(req, res) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
   }
 
-  const { token, password } = parsed.data;
-  const { rows } = await pool.query(
-    `SELECT pr.id, pr.user_id, pr.token_hash, pr.expires_at, u.email
-     FROM password_resets pr
-     JOIN users u ON u.id = pr.user_id
-     WHERE pr.used_at IS NULL
-     ORDER BY pr.created_at DESC
-     LIMIT 20`
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT pr.id, pr.user_id, pr.expires_at
+       FROM password_reset_tokens pr
+       JOIN users u ON u.id=pr.user_id
+       WHERE pr.token_hash=$1 AND pr.used_at IS NULL
+         AND u.is_active=true AND u.is_blocked=false
+       FOR UPDATE`,
+      [hashResetToken(parsed.data.token)]
+    );
+    const reset = rows[0];
 
-  let found = null;
-  for (const r of rows) {
-    const ok = await bcrypt.compare(token, r.token_hash);
-    if (ok) {
-      found = r;
-      break;
+    if (!reset || new Date(reset.expires_at).getTime() <= Date.now()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'INVALID_OR_EXPIRED_TOKEN' });
     }
+
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+    await client.query(
+      `UPDATE users
+       SET password_hash=$1, token_version=token_version+1, updated_at=NOW()
+       WHERE id=$2`,
+      [passwordHash, reset.user_id]
+    );
+    await client.query(
+      'UPDATE password_reset_tokens SET used_at=NOW() WHERE user_id=$1 AND used_at IS NULL',
+      [reset.user_id]
+    );
+    await client.query('COMMIT');
+    return res.json({ ok: true });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  if (!found) return res.status(400).json({ error: 'INVALID_TOKEN' });
-  if (new Date(found.expires_at).getTime() < Date.now()) return res.status(400).json({ error: 'TOKEN_EXPIRED' });
-
-  const password_hash = await bcrypt.hash(password, 10);
-
-  await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [password_hash, found.user_id]);
-  await pool.query('UPDATE password_resets SET used_at=NOW() WHERE id=$1', [found.id]);
-
-  return res.json({ ok: true });
 }
 
 async function me(req, res) {
@@ -228,7 +194,15 @@ async function me(req, res) {
     'SELECT id, first_name, last_name, username, email, role, permissions FROM users WHERE id=$1',
     [req.user.id]
   );
-  return res.json({ user: rows[0] });
+  return res.json({ user: publicUser(rows[0]) });
 }
 
-module.exports = { ROLES, register, login, forgotPassword, resetPassword, me };
+module.exports = {
+  AUTH_COOKIE_NAME,
+  passwordSchema,
+  login,
+  logout,
+  forgotPassword,
+  resetPassword,
+  me
+};

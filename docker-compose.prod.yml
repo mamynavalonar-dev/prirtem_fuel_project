@@ -1,30 +1,50 @@
 services:
   db:
-    image: postgres:16
-    container_name: prirtem_db
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: prirtem_fuel
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-prirtem_fuel}
     volumes:
       - prirtem_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: prirtem_app
+    restart: unless-stopped
     environment:
+      NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgres://postgres:123456@db:5432/prirtem_fuel
-      JWT_SECRET: NavalonaDevfullstack2026
-      APP_URL: http://localhost:3001
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CLIENT_URL: ${CLIENT_URL:?CLIENT_URL is required}
+      APP_CLIENT_URL: ${APP_CLIENT_URL:?APP_CLIENT_URL is required}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@prirtem.local}
+      DB_SSL: ${DB_SSL:-false}
     ports:
-      - "3001:3001"
+      - "127.0.0.1:${APP_PORT:-3001}:3001"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
 
 volumes:
   prirtem_db_data:

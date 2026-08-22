@@ -39,6 +39,7 @@ router.get('/export', asyncHandler((req, res, next) => {
 
 // Reports & KPIs
 router.get('/report/summary', asyncHandler(ctrl.reportSummary));
+router.get('/kpi/simple/daily', asyncHandler(ctrl.kpiSimpleDaily));
 router.get('/kpi/daily/bulk', asyncHandler(ctrl.kpiDailyBulk));
 router.get('/kpi/daily', asyncHandler(ctrl.kpiDaily));
 router.get('/kpi/by-vehicle', asyncHandler(ctrl.kpiByVehicle));

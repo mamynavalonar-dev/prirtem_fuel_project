@@ -679,12 +679,9 @@ function Dashboard() {
       if (!token) return;
       setLoadingGenOther(true);
       try {
-        const [g, o] = await Promise.all([
-          apiFetch(withQs('/api/fuel/generator', qs), { token }),
-          apiFetch(withQs('/api/fuel/other', qs), { token }),
-        ]);
-        setGeneratorLogs(g?.logs || []);
-        setOtherLogs(o?.logs || []);
+        const result = await apiFetch(withQs('/api/fuel/kpi/simple/daily', qs), { token });
+        setGeneratorLogs(result?.generator || []);
+        setOtherLogs(result?.other || []);
       } catch (_) {
         setGeneratorLogs([]);
         setOtherLogs([]);

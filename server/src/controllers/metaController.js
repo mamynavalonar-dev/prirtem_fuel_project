@@ -226,13 +226,28 @@ async function updateVehicle(req, res) {
 
 async function deleteVehicle(req, res) {
   const { id } = req.params;
-  await pool.query(`UPDATE vehicles SET deleted_at=now(), deleted_by=$2 WHERE id=$1`, [id, req.user?.id || null]);
-
-  // (Optionnel) Marque aussi les affectations liées comme supprimées logiquement
-  await pool.query(
-    `UPDATE driver_vehicle_assignments SET deleted_at=now() WHERE vehicle_id=$1 AND deleted_at IS NULL`,
-    [id]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE vehicles SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL`,
+      [id, req.user.id]
+    );
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
+    await client.query(
+      `UPDATE driver_vehicle_assignments SET deleted_at=now() WHERE vehicle_id=$1 AND deleted_at IS NULL`,
+      [id]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   res.json({ ok: true });
 }
@@ -288,14 +303,17 @@ function buildFullName(d) {
 }
 
 async function listDrivers(req, res) {
+  const canViewSensitive = ['ADMIN', 'LOGISTIQUE'].includes(req.user.role);
+  const sensitiveColumns = canViewSensitive
+    ? `d.phone, d.matricule, d.license_no, d.license_expiry, d.cin, d.address,`
+    : `NULL::text AS phone, NULL::text AS matricule, NULL::text AS license_no,
+       NULL::date AS license_expiry, NULL::text AS cin, NULL::text AS address,`;
   const { rows } = await pool.query(
     `
     SELECT
       d.id,
       d.first_name, d.last_name, d.full_name,
-      d.phone, d.matricule,
-      d.license_no, d.license_expiry,
-      d.cin, d.address,
+      ${sensitiveColumns}
       d.is_active, d.created_at, d.updated_at,
 
       v.id AS vehicle_id,
@@ -436,12 +454,28 @@ async function updateDriver(req, res) {
 
 async function deleteDriver(req, res) {
   const { id } = req.params;
-  await pool.query(`UPDATE drivers SET deleted_at=now(), deleted_by=$2 WHERE id=$1`, [id, req.user?.id || null]);
-
-  await pool.query(
-    `UPDATE driver_vehicle_assignments SET deleted_at=now() WHERE driver_id=$1 AND deleted_at IS NULL`,
-    [id]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      `UPDATE drivers SET deleted_at=now(), deleted_by=$2 WHERE id=$1 AND deleted_at IS NULL`,
+      [id, req.user.id]
+    );
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
+    await client.query(
+      `UPDATE driver_vehicle_assignments SET deleted_at=now() WHERE driver_id=$1 AND deleted_at IS NULL`,
+      [id]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   res.json({ ok: true });
 }
@@ -590,5 +624,3 @@ module.exports = {
   createAssignment,
   unassignVehicle
 };
-
-

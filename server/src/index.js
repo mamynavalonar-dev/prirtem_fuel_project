@@ -1,8 +1,10 @@
 // server/src/index.js
-require("dotenv").config();
+require("dotenv").config({
+  path: process.env.PRIRTEM_ENV_FILE || undefined,
+});
 
 // Validate required environment variables
-const requiredEnvVars = ["JWT_SECRET"];
+const requiredEnvVars = ["DATABASE_URL", "JWT_SECRET"];
 for (const varName of requiredEnvVars) {
   if (!process.env[varName]) {
     console.error(
@@ -11,14 +13,31 @@ for (const varName of requiredEnvVars) {
     process.exit(1);
   }
 }
+if (process.env.JWT_SECRET.length < 32) {
+  console.error("FATAL ERROR: JWT_SECRET must contain at least 32 characters");
+  process.exit(1);
+}
+if (process.env.NODE_ENV === "production") {
+  for (const varName of ["CLIENT_URL", "APP_CLIENT_URL", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]) {
+    if (!process.env[varName]) {
+      console.error(`FATAL ERROR: ${varName} is required in production`);
+      process.exit(1);
+    }
+  }
+}
 
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const helmet = require("helmet");
+const compression = require("compression");
 const path = require("path");
 const fs = require("fs");
 
 const { runMigrations } = require("./sql/migrate");
 const { pool } = require("./db");
+const { apiLimiter } = require("./middleware/rateLimit");
+const { ensureCsrfCookie, verifyCsrf } = require("./middleware/csrf");
 
 // ✅ pour l’alias /api/vehicles
 const { authRequired } = require("./middleware/auth");
@@ -38,20 +57,52 @@ const usersRoutes = require("./routes/users");
 
 const app = express();
 
+app.disable("x-powered-by");
+if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+
+const allowedOrigins = String(process.env.CLIENT_URL || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const corsOptions = {
-  origin: process.env.CLIENT_URL || true,
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(Object.assign(new Error('Origin not allowed by CORS'), { statusCode: 403 }));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 };
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      "default-src": ["'self'"],
+      "style-src": ["'self'", "'unsafe-inline'"],
+      "img-src": ["'self'", "data:"],
+      "connect-src": ["'self'", ...allowedOrigins],
+      "object-src": ["'none'"],
+      "frame-ancestors": ["'none'"]
+    }
+  },
+  crossOriginResourcePolicy: { policy: "same-origin" }
+}));
+app.use(compression());
+app.use(cookieParser());
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+app.use(ensureCsrfCookie);
+app.use("/api", apiLimiter, verifyCsrf);
 
 // Health Check
-app.get("/api/health", (req, res) =>
-  res.json({ status: "ok", uptime: process.uptime() }),
-);
+app.get("/api/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    return res.json({ status: "ok", database: "ok", uptime: process.uptime() });
+  } catch {
+    return res.status(503).json({ status: "degraded", database: "unavailable" });
+  }
+});
 
 // ✅ Alias legacy: /api/vehicles (évite 404 si le client appelle encore l’ancienne route)
 app.get("/api/vehicles", authRequired, (req, res, next) => {
@@ -97,7 +148,9 @@ app.use((err, req, res, next) => {
   }
 
   const status = err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
+  const message = status >= 500 && process.env.NODE_ENV === "production"
+    ? "Internal Server Error"
+    : (err.message || "Internal Server Error");
 
   res.status(status).json({
     error: err.name || "SERVER_ERROR",
@@ -108,18 +161,6 @@ app.use((err, req, res, next) => {
 
 async function start() {
   const port = Number(process.env.PORT || 3001);
-  // Kill any existing process on the port to avoid "Address already in use" errors
-  try {
-    const kill = require("kill-port");
-    await kill(port);
-    console.log(`🔥 Killed any existing process on port ${port}`);
-    // Laisse le temps à l'OS (surtout Windows) de vraiment libérer le port
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  } catch (err) {
-    // Ignore errors if no process was found on the port
-    console.log(`ℹ️  No process found on port ${port} to kill`);
-  }
-
   // ✅ CORRECTIF : on attend que les migrations soient terminées AVANT
   // d'ouvrir le port. Avant ce correctif, app.listen() démarrait en
   // parallèle des migrations : le serveur acceptait déjà des requêtes

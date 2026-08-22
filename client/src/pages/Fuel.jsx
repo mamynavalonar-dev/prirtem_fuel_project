@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch, getApiUrl } from '../utils/api.js';
+import { normalizeHttpUrl } from '../utils/security.js';
 import Modal from '../components/Modal.jsx';
 import './Fuel.css';
 
@@ -193,7 +194,7 @@ export default function Fuel() {
     if (tab === 'vehicle' && vehicleId) qs.set('vehicle_id', vehicleId);
 
     const url = `${getApiUrl()}/api/fuel/export/${encodeURIComponent(tab)}?${qs.toString()}`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(url, { credentials: 'include' });
     if (!res.ok) {
       const txt = await res.text();
       alert(`Export failed: ${txt}`);
@@ -354,8 +355,10 @@ export default function Fuel() {
     if (k === 'is_refill') return <Badge yes={!!row.is_refill} />;
 
     if (k === 'lien' && v) {
+      const safeUrl = normalizeHttpUrl(v);
+      if (!safeUrl) return <span title={String(v)}>Lien invalide</span>;
       return (
-        <a className="fuel-link" href={v} target="_blank" rel="noreferrer">
+        <a className="fuel-link" href={safeUrl} target="_blank" rel="noopener noreferrer">
           Ouvrir
         </a>
       );

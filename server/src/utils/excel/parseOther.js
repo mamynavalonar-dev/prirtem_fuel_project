@@ -1,4 +1,5 @@
 const { parseDate, toFloat, toInt, sheetTo2D, norm } = require('./parseUtils');
+const { normalizeHttpUrl } = require('../security');
 
 function parseOtherWorkbook(workbook, originalName) {
   const fileName = originalName || 'other.xlsx';
@@ -27,7 +28,7 @@ function parseOtherWorkbook(workbook, originalName) {
       const log_date = parseDate(row[dateCol]);
       const liters = toFloat(row[litreCol]);
       const montant_ar = toInt(row[montantCol]);
-      const lien = lienCol >= 0 && row[lienCol] ? String(row[lienCol]).trim() : null;
+      const lien = lienCol >= 0 ? normalizeHttpUrl(row[lienCol]) : null;
 
       if (!log_date && liters === null && montant_ar === null && !lien) continue;
       if (!log_date) continue;
