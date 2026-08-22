@@ -1,6 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID: uuidv4 } = require('crypto');
 const { z } = require('zod');
 const { auditLog } = require('../utils/audit');
 const { passwordSchema } = require('../utils/passwordPolicy');
