@@ -31,5 +31,8 @@
         "service": "web"
       }
     }
+  ],
+  "regions": [
+    "bom1"
   ]
 }
