@@ -4,7 +4,7 @@
 // Seeds ONLY (does NOT drop tables). Existing users are never overwritten.
 
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID: uuidv4 } = require('crypto');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db');
 const { passwordSchema } = require('../utils/passwordPolicy');

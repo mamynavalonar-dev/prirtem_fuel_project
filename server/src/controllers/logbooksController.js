@@ -138,7 +138,7 @@ exports.create = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'La date de fin doit être >= la date de début' });
   }
 
-  const id = crypto.randomUUID ? crypto.randomUUID() : require('uuid').v4();
+  const id = crypto.randomUUID();
   const createdBy = req.user.id;
   const client = await pool.connect();
   let transactionOpen = false;
@@ -319,7 +319,7 @@ exports.replaceTrips = asyncHandler(async (req, res) => {
     await client.query(`DELETE FROM car_logbook_trips WHERE logbook_id=$1`, [id]);
 
     for (const t of trips) {
-      const rowId = crypto.randomUUID ? crypto.randomUUID() : require('uuid').v4();
+      const rowId = crypto.randomUUID();
       await client.query(
         `INSERT INTO car_logbook_trips(
           id, logbook_id, trip_date, depart_time, depart_km,
@@ -377,7 +377,7 @@ exports.replaceSupplies = asyncHandler(async (req, res) => {
     await client.query(`DELETE FROM car_logbook_fuel_supplies WHERE logbook_id=$1`, [id]);
 
     for (const supply of supplies) {
-      const rowId = crypto.randomUUID ? crypto.randomUUID() : require('uuid').v4();
+      const rowId = crypto.randomUUID();
       await client.query(
         `INSERT INTO car_logbook_fuel_supplies(id, logbook_id, supply_date, compteur_km, liters, montant_ar)
          VALUES ($1,$2,$3,$4,$5,$6)`,
