@@ -3,6 +3,7 @@ const { pool } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const { z } = require('zod');
 const { auditLog } = require('../utils/audit');
+const { passwordSchema } = require('../utils/passwordPolicy');
 
 const ROLES = ['DEMANDEUR', 'LOGISTIQUE', 'RAF', 'ADMIN'];
 
@@ -14,7 +15,7 @@ const updateSchema = z.object({
   role: z.enum(ROLES).optional(),
   is_active: z.boolean().optional(),
   is_blocked: z.boolean().optional(),
-  password: z.string().min(6).optional(),
+  password: passwordSchema.optional(),
   permissions: z.array(z.string()).optional() // permissions supplémentaires
 }).strict();
 
@@ -24,19 +25,19 @@ const createSchema = z.object({
   username: z.string().min(3),
   email: z.string().email(),
   role: z.enum(ROLES),
-  password: z.string().min(6),
+  password: passwordSchema,
   is_active: z.boolean().optional(),
   is_blocked: z.boolean().optional(),
   permissions: z.array(z.string()).optional()
 }).strict();
 
 const bulkSchema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
+  ids: z.array(z.string().uuid()).min(1).max(500),
   patch: updateSchema
 }).strict();
 
-async function countRemainingLoginableAdmins(excludeIds = []) {
-  const { rows } = await pool.query(
+async function countRemainingLoginableAdmins(excludeIds = [], db = pool) {
+  const { rows } = await db.query(
     `SELECT COUNT(*)::int AS c
      FROM users
      WHERE role='ADMIN'
@@ -48,9 +49,9 @@ async function countRemainingLoginableAdmins(excludeIds = []) {
   return rows[0]?.c || 0;
 }
 
-async function ensureNotLastAdmin(targetIds = [], patch = {}) {
+async function ensureNotLastAdmin(targetIds = [], patch = {}, db = pool) {
   // si patch rend les admins ciblés non-loginables (inactive/blocked) ou change leur role
-  const { rows } = await pool.query(
+  const { rows } = await db.query(
     `SELECT id, role, is_active, is_blocked FROM users WHERE id = ANY($1::uuid[])`,
     [targetIds]
   );
@@ -72,7 +73,7 @@ async function ensureNotLastAdmin(targetIds = [], patch = {}) {
   const removing = affectedAdmins.filter(wouldRemoveLogin).map((u) => u.id);
   if (removing.length === 0) return;
 
-  const remaining = await countRemainingLoginableAdmins(removing);
+  const remaining = await countRemainingLoginableAdmins(removing, db);
   if (remaining <= 0) {
     const err = new Error('LAST_ADMIN_PROTECT');
     err.status = 400;
@@ -99,11 +100,13 @@ async function create(req, res) {
 
   const { first_name, last_name, username, email, role, password, is_active, is_blocked, permissions } = parsed.data;
 
-  const password_hash = await bcrypt.hash(password, 10);
+  const password_hash = await bcrypt.hash(password, 12);
   const id = uuidv4();
 
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query('BEGIN');
+    await client.query(
       `INSERT INTO users (id, first_name, last_name, username, email, role, password_hash, is_active, is_blocked, permissions)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [id, first_name, last_name, username, email, role, password_hash, is_active ?? true, is_blocked ?? false, permissions ?? []]
@@ -113,15 +116,20 @@ async function create(req, res) {
       actorId: req.user.id,
       action: 'USER_CREATE',
       targetUserId: id,
-      meta: { username, email, role }
+      meta: { username, email, role },
+      db: client,
+      required: true
     });
-
+    await client.query('COMMIT');
     res.json({ ok: true, id });
   } catch (e) {
+    await client.query('ROLLBACK');
     if (String(e.message).includes('unique')) {
       return res.status(409).json({ error: "Utilisateur ou Email déjà existant" });
     }
     throw e;
+  } finally {
+    client.release();
   }
 }
 
@@ -135,15 +143,17 @@ async function update(req, res) {
 
   const patch = parsed.data;
 
-  // protect last admin
-  await ensureNotLastAdmin([id], patch);
-
   let pwdHash = null;
   if (patch.password && patch.password.trim() !== '') {
-    pwdHash = await bcrypt.hash(patch.password, 10);
+    pwdHash = await bcrypt.hash(patch.password, 12);
   }
 
-  await pool.query(
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE');
+    await ensureNotLastAdmin([id], patch, client);
+    const result = await client.query(
     `UPDATE users SET
        first_name = COALESCE($2, first_name),
        last_name = COALESCE($3, last_name),
@@ -153,6 +163,7 @@ async function update(req, res) {
        is_active = COALESCE($7, is_active),
        is_blocked = COALESCE($8, is_blocked),
        password_hash = COALESCE($9, password_hash),
+       token_version = CASE WHEN $9::text IS NULL THEN token_version ELSE token_version + 1 END,
        permissions = COALESCE($10, permissions),
        updated_at = NOW()
      WHERE id = $1`,
@@ -168,14 +179,27 @@ async function update(req, res) {
       pwdHash,
       patch.permissions ?? null
     ]
-  );
+    );
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
 
-  await auditLog({
-    actorId: req.user.id,
-    action: 'USER_UPDATE',
-    targetUserId: id,
-    meta: { patch: { ...patch, password: patch.password ? '***' : undefined } }
-  });
+    await auditLog({
+      actorId: req.user.id,
+      action: 'USER_UPDATE',
+      targetUserId: id,
+      meta: { patch: { ...patch, password: patch.password ? '***' : undefined } },
+      db: client,
+      required: true
+    });
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   res.json({ ok: true });
 }
@@ -188,10 +212,11 @@ async function bulkUpdate(req, res) {
 
   const { ids, patch } = parsed.data;
 
-  await ensureNotLastAdmin(ids, patch);
-
-  await pool.query('BEGIN');
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+    await client.query('LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE');
+    await ensureNotLastAdmin(ids, patch, client);
     // password bulk: non (pas safe) -> interdit
     if (patch.password) {
       const err = new Error('BULK_PASSWORD_NOT_ALLOWED');
@@ -199,7 +224,7 @@ async function bulkUpdate(req, res) {
       throw err;
     }
 
-    await pool.query(
+    await client.query(
       `UPDATE users SET
          role = COALESCE($2, role),
          is_active = COALESCE($3, is_active),
@@ -220,14 +245,18 @@ async function bulkUpdate(req, res) {
       actorId: req.user.id,
       action: 'USER_BULK_UPDATE',
       targetUserId: null,
-      meta: { ids, patch }
+      meta: { ids, patch },
+      db: client,
+      required: true
     });
 
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     return res.json({ ok: true });
   } catch (e) {
-    await pool.query('ROLLBACK');
+    await client.query('ROLLBACK');
     throw e;
+  } finally {
+    client.release();
   }
 }
 
@@ -237,14 +266,32 @@ async function revokeSessions(req, res) {
   // empêcher révocation du dernier admin loginable (si on révoque son token, il peut relogin, donc OK)
   // => pas besoin de last-admin check ici
 
-  await pool.query('UPDATE users SET token_version = token_version + 1, updated_at=NOW() WHERE id=$1', [id]);
-
-  await auditLog({
-    actorId: req.user.id,
-    action: 'USER_REVOKE_SESSIONS',
-    targetUserId: id,
-    meta: { note: 'token_version++' }
-  });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'UPDATE users SET token_version = token_version + 1, updated_at=NOW() WHERE id=$1',
+      [id]
+    );
+    if (!result.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'NOT_FOUND' });
+    }
+    await auditLog({
+      actorId: req.user.id,
+      action: 'USER_REVOKE_SESSIONS',
+      targetUserId: id,
+      meta: { note: 'token_version++' },
+      db: client,
+      required: true
+    });
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return res.json({ ok: true });
 }

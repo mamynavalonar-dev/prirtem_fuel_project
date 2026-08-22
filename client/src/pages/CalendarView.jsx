@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { csvEscape } from '../utils/security.js';
 import Modal from '../components/Modal.jsx';
 
 function toYMD(v) {
@@ -65,12 +66,6 @@ function sameYMD(a, b) {
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart <= bEnd && bStart <= aEnd;
-}
-
-function csvEscape(v) {
-  const s = String(v ?? '');
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
 }
 
 export default function CalendarView() {
@@ -520,15 +515,16 @@ export default function CalendarView() {
 
   // ===== Actions (details modal) =====
   const doCarLogisticsApprove = async (id, vehicle_id, driver_id) => {
-    await apiFetch(`/api/requests/car/${id}/logistics-approve`, { method: 'POST', token, body: { vehicle_id, driver_id } });
+    await apiFetch(`/api/requests/car/${id}/visa`, { method: 'POST', token, body: { vehicle_id, driver_id } });
     await loadAll();
   };
   const doCarRafApprove = async (id) => {
-    await apiFetch(`/api/requests/car/${id}/raf-approve`, { method: 'POST', token });
+    await apiFetch(`/api/requests/car/${id}/approve`, { method: 'POST', token });
     await loadAll();
   };
   const doCarReject = async (id) => {
-    const reason = prompt('Motif de rejet (optionnel) :') || '';
+    const reason = prompt('Motif de rejet (obligatoire) :') || '';
+    if (!reason.trim()) return;
     await apiFetch(`/api/requests/car/${id}/reject`, { method: 'POST', token, body: { reason } });
     await loadAll();
   };
@@ -1091,8 +1087,8 @@ function Details({
   const meta = statusMeta(mode, data.status);
 
   const can = {
-    carLogistics: ['LOGISTIQUE', 'ADMIN'].includes(userRole) && data.status === 'SUBMITTED',
-    carRaf: ['RAF', 'ADMIN'].includes(userRole) && data.status === 'LOGISTICS_APPROVED',
+    carLogistics: userRole === 'LOGISTIQUE' && data.status === 'SUBMITTED',
+    carRaf: userRole === 'RAF' && data.status === 'LOGISTICS_APPROVED',
     carReject: ['LOGISTIQUE', 'RAF', 'ADMIN'].includes(userRole) && ['SUBMITTED', 'LOGISTICS_APPROVED'].includes(data.status),
     carCancel:
       ['DEMANDEUR'].includes(userRole) && ['SUBMITTED', 'LOGISTICS_APPROVED'].includes(data.status)
@@ -1100,8 +1096,8 @@ function Details({
         : ['ADMIN', 'LOGISTIQUE', 'RAF'].includes(userRole) && ['SUBMITTED', 'LOGISTICS_APPROVED'].includes(data.status),
 
     fuelSubmit: userRole === 'DEMANDEUR' && ['DRAFT', 'REJECTED'].includes(data.status),
-    fuelVerify: ['LOGISTIQUE', 'ADMIN'].includes(userRole) && data.status === 'SUBMITTED',
-    fuelApprove: ['RAF', 'ADMIN'].includes(userRole) && data.status === 'VERIFIED',
+    fuelVerify: userRole === 'LOGISTIQUE' && data.status === 'SUBMITTED',
+    fuelApprove: userRole === 'RAF' && data.status === 'VERIFIED',
     fuelReject: ['LOGISTIQUE', 'RAF', 'ADMIN'].includes(userRole) && ['SUBMITTED', 'VERIFIED'].includes(data.status),
     fuelCancel:
       ['DEMANDEUR'].includes(userRole) && ['DRAFT', 'SUBMITTED', 'VERIFIED', 'REJECTED'].includes(data.status)

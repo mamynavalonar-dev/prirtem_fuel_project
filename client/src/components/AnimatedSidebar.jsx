@@ -1,8 +1,9 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import './animatedSidebar.css';
+import { preloadRoute } from '../routeModules.js';
 
-const LOGO_PRIRTEM = "/ui/login/logos/prirtem.png";
+const LOGO_PRIRTEM = "/ui/login/logos/prirtem.webp";
 
 
 const MAIN_OFFSET_COLLAPSED = '110px';
@@ -145,9 +146,11 @@ export default React.memo(function AnimatedSidebar({
 
 
         {!isMobile && (
-          <div className="asb-toggle" onClick={toggle} role="button" aria-label="Réduire/Étendre">
-            <ion-icon name="chevron-forward-outline"></ion-icon>
-          </div>
+          <button className="asb-toggle" onClick={toggle} type="button" aria-label="Réduire ou étendre la navigation">
+            <svg className="asb-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+          </button>
         )}
 
         <ul className="asb-menu-list" ref={listRef}>
@@ -169,6 +172,9 @@ export default React.memo(function AnimatedSidebar({
                 end={m.to === '/app'}
                 className={({ isActive }) => `asb-item ${isActive ? 'active' : ''}`}
                 onClick={onNavClick}
+                onMouseEnter={() => { void preloadRoute(m.to); }}
+                onFocus={() => { void preloadRoute(m.to); }}
+                onPointerDown={() => { void preloadRoute(m.to); }}
               >
                 <div className="asb-link">
                   <span className="asb-icon">

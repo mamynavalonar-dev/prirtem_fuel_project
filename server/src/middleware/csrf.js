@@ -16,6 +16,7 @@ const crypto = require('crypto');
 const CSRF_COOKIE_NAME = 'csrf_token';
 const CSRF_HEADER_NAME = 'x-csrf-token';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const SESSION_COOKIE_NAME = 'prirtem_session';
 
 function genCsrfToken() {
   return crypto.randomBytes(32).toString('hex');
@@ -50,10 +51,20 @@ function ensureCsrfCookie(req, res, next) {
 function verifyCsrf(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
 
+  // Bearer-only/API clients are not vulnerable to browser CSRF. Enforce the
+  // double-submit token whenever the HttpOnly browser session is present.
+  if (!req.cookies?.[SESSION_COOKIE_NAME]) return next();
+
   const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
   const headerToken = req.headers[CSRF_HEADER_NAME];
 
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+  const cookieBuffer = Buffer.from(String(cookieToken || ''));
+  const headerBuffer = Buffer.from(String(headerToken || ''));
+  const valid = cookieBuffer.length > 0 &&
+    cookieBuffer.length === headerBuffer.length &&
+    crypto.timingSafeEqual(cookieBuffer, headerBuffer);
+
+  if (!valid) {
     return res.status(403).json({ error: 'CSRF_TOKEN_INVALID' });
   }
   next();

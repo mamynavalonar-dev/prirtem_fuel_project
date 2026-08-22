@@ -5,7 +5,6 @@ import { apiFetch } from '../utils/api.js';
 export default function Reset() {
   const [params] = useSearchParams();
   const nav = useNavigate();
-  const email = useMemo(() => params.get('email') || '', [params]);
   const token = useMemo(() => params.get('token') || '', [params]);
 
   const [newPassword, setNewPassword] = useState('');
@@ -18,7 +17,7 @@ export default function Reset() {
     try {
       await apiFetch('/api/auth/reset', {
         method: 'POST',
-        body: { email, token, new_password: newPassword }
+        body: { token, password: newPassword }
       });
       setDone(true);
       setTimeout(() => nav('/login'), 700);
@@ -35,13 +34,10 @@ export default function Reset() {
           <div className="notice">Mot de passe modifié ✅ Redirection...</div>
         ) : (
           <>
-            <div className="muted" style={{ marginBottom: 12 }}>
-              Email: <b>{email || '—'}</b>
-            </div>
             {error && <div className="notice error">{error}</div>}
             <form onSubmit={onSubmit} className="form">
-              <label className="label">Nouveau mot de passe</label>
-              <input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <label className="label" htmlFor="new-password">Nouveau mot de passe</label>
+              <input id="new-password" name="new-password" className="input" type="password" autoComplete="new-password" minLength={12} required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
               <button className="btn btn-primary" type="submit">Valider</button>
             </form>
           </>

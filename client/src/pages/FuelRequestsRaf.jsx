@@ -53,7 +53,7 @@ export default function FuelRequestsRaf() {
     await load();
   }
 
-  const can = ['RAF', 'ADMIN'].includes(role);
+  const can = role === 'RAF';
 
   return (
     <div className="card">

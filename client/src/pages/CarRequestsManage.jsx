@@ -43,7 +43,7 @@ export default function CarRequestsManage() {
 
   useEffect(() => { load(); }, []);
 
-  const canManage = useMemo(() => ['LOGISTIQUE','ADMIN'].includes(role), [role]);
+  const canManage = useMemo(() => role === 'LOGISTIQUE', [role]);
 
   async function openView(id) {
     setViewId(id);
@@ -125,7 +125,8 @@ export default function CarRequestsManage() {
   }
 
   async function reject(id) {
-    const reason = prompt('Motif rejet (optionnel)') || null;
+    const reason = prompt('Motif rejet (obligatoire)') || '';
+    if (!reason.trim()) return;
     try {
       await apiFetch(`/api/requests/car/${id}/reject`, { token, method: 'POST', body: { reason } });
       await load();
@@ -135,17 +136,12 @@ export default function CarRequestsManage() {
   }
 
   async function printOne(id) {
-    try {
-      const d = await apiFetch(`/api/requests/car/${id}/print`, { token });
-      window.open(d.url, '_blank');
-    } catch (e) {
-      alert(e.message);
-    }
+    window.open(`/print/car/${id}`, '_blank', 'noopener,noreferrer');
   }
 
   return (
     <div className="card">
-      <h2>Validation voiture (Logistique/Admin)</h2>
+      <h2>Validation voiture (Logistique)</h2>
       {error && <div className="alert">{error}</div>}
       {loading ? <div className="muted">Chargement...</div> : null}
 

@@ -1,8 +1,6 @@
 -- PRIRTEM Fuel WebApp - Database schema (PostgreSQL)
 -- NOTE: Designed to match the server controllers/routes in /server/src
 
-BEGIN;
-
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ---------- TYPES ----------
@@ -21,27 +19,6 @@ BEGIN
     CREATE TYPE logbook_status AS ENUM ('DRAFT','SUBMITTED','LOCKED');
   END IF;
 END $$;
-
--- ---------- DROP (safe re-run) ----------
-DROP TABLE IF EXISTS car_logbook_fuel_supplies CASCADE;
-DROP TABLE IF EXISTS car_logbook_trips CASCADE;
-DROP TABLE IF EXISTS car_logbooks CASCADE;
-
-DROP TABLE IF EXISTS car_requests CASCADE;
-DROP TABLE IF EXISTS fuel_requests CASCADE;
-
-DROP TABLE IF EXISTS vehicle_fuel_logs CASCADE;
-DROP TABLE IF EXISTS generator_fuel_logs CASCADE;
-DROP TABLE IF EXISTS other_fuel_logs CASCADE;
-
-DROP TABLE IF EXISTS import_files CASCADE;
-DROP TABLE IF EXISTS import_batches CASCADE;
-
-DROP TABLE IF EXISTS drivers CASCADE;
-DROP TABLE IF EXISTS vehicles CASCADE;
-
-DROP TABLE IF EXISTS password_reset_tokens CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
 
 -- ---------- COMMON ----------
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -466,20 +443,4 @@ CREATE TABLE IF NOT EXISTS notification_reads (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_reads_user ON notification_reads(user_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_admin_active
-ON users(role)
-WHERE role = 'ADMIN'::user_role AND is_active = true;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_logistique_active
-ON users(role)
-WHERE role = 'LOGISTIQUE'::user_role AND is_active = true;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_one_raf_active
-ON users(role)
-WHERE role = 'RAF'::user_role AND is_active = true;
-
-
-COMMIT;
-
 

@@ -12,6 +12,14 @@ const jsonHandler = (req, res) => {
   });
 };
 
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: jsonHandler,
+});
+
 // Login: 10 tentatives / 10 min / IP (protège contre le brute-force de mot de passe)
 const loginLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
@@ -40,13 +48,4 @@ const resetLimiter = rateLimit({
   handler: jsonHandler,
 });
 
-// Register: 5 / heure / IP
-const registerLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: jsonHandler,
-});
-
-module.exports = { loginLimiter, forgotLimiter, resetLimiter, registerLimiter };
+module.exports = { apiLimiter, loginLimiter, forgotLimiter, resetLimiter };

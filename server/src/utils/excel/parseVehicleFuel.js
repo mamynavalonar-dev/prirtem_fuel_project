@@ -1,4 +1,5 @@
 const { norm, toInt, toFloat, parseDate, sheetTo2D } = require('./parseUtils');
+const { normalizeHttpUrl } = require('../security');
 
 /**
  * Sanitize string to prevent CSV formula injection.
@@ -180,7 +181,7 @@ function parseSheet(sheetName, grid, fileName, options = {}) {
     const liters = toFloat(getCell(truncatedRow, litreCol));
     const montant_ar = toInt(getCell(truncatedRow, montantCol));
 
-    const lien = lienCol >= 0 ? sanitizeCsv(getCell(truncatedRow, lienCol)) : null;
+    const lien = lienCol >= 0 ? normalizeHttpUrl(getCell(truncatedRow, lienCol)) : null;
     const chauffeur = chauffeurCol >= 0 ? sanitizeCsv(getCell(truncatedRow, chauffeurCol)) : null;
     const frns = frnsCol >= 0 ? sanitizeCsv(getCell(truncatedRow, frnsCol)) : null;
 

@@ -20,11 +20,27 @@ if (!connectionString) {
  */
 types.setTypeParser(1082, (val) => val);
 
-// Configuration recommandée pour la prod (SSL si besoin)
+const sslEnabled = process.env.DB_SSL === 'true';
+const ssl = sslEnabled
+  ? {
+      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+      ...(process.env.DB_SSL_CA ? { ca: process.env.DB_SSL_CA.replace(/\\n/g, '\n') } : {})
+    }
+  : false;
+
+function envNumber(name, fallback, min, max) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
 const pool = new Pool({
   connectionString,
-  // max: 20, // (Optionnel) Limite de connexions simultanées
-  // idleTimeoutMillis: 30000
+  max: envNumber('DB_POOL_MAX', 20, 1, 50),
+  idleTimeoutMillis: envNumber('DB_IDLE_TIMEOUT_MS', 30000, 1000, 300000),
+  connectionTimeoutMillis: envNumber('DB_CONNECTION_TIMEOUT_MS', 5000, 500, 60000),
+  statement_timeout: envNumber('DB_STATEMENT_TIMEOUT_MS', 30000, 1000, 300000),
+  ssl
 });
 
 // IMPORTANT : Capture les erreurs sur les clients inactifs pour éviter le crash du serveur

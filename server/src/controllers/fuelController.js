@@ -1,10 +1,18 @@
 const { z } = require('zod');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db');
+const { csvEscape, normalizeHttpUrl } = require('../utils/security');
 
 // SEUIL pour considérer un ajout comme un "PLEIN" (en Ariary)
 // Idéalement, à mettre dans une table 'settings' en base de données.
 const REFILL_THRESHOLD = 200000;
+
+const optionalHttpUrlSchema = z.union([
+  z.string().trim().max(2048).refine((value) => value === '' || normalizeHttpUrl(value) !== null, {
+    message: 'Le lien doit utiliser http:// ou https://'
+  }).transform((value) => value === '' ? null : normalizeHttpUrl(value)),
+  z.null()
+]).optional();
 
 function buildWhereVehicle({ vehicle_id, from, to, only_refill }) {
   const clauses = [];
@@ -92,7 +100,7 @@ const updateVehicleSchema = z.object({
   compteur: z.number().int().optional().nullable(),
   liters: z.number().optional().nullable(),
   montant_ar: z.number().int().optional().nullable(),
-  lien: z.string().optional().nullable(),
+  lien: optionalHttpUrlSchema,
   chauffeur: z.string().optional().nullable(),
   frns: z.string().optional().nullable()
 });
@@ -296,36 +304,61 @@ async function reportSummary(req, res) {
   const v = buildWhereVehicle({ vehicle_id, from, to, only_refill: 'false' });
   const d = buildWhereDate({ from, to });
 
-  const vehicleRes = await pool.query(
-    `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
-            COALESCE(SUM(liters),0) AS liters,
-            COUNT(*) FILTER (WHERE is_refill) AS refills
-     FROM vehicle_fuel_logs vfl
-     ${v.where}`,
-    v.params
-  );
-  const genRes = await pool.query(
-    `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
-            COALESCE(SUM(liters),0) AS liters,
-            COUNT(*) AS count
-     FROM generator_fuel_logs
-     ${d.where}`,
-    d.params
-  );
-  const otherRes = await pool.query(
-    `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
-            COALESCE(SUM(liters),0) AS liters,
-            COUNT(*) AS count
-     FROM other_fuel_logs
-     ${d.where}`,
-    d.params
-  );
+  const [vehicleRes, genRes, otherRes] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
+              COALESCE(SUM(liters),0) AS liters,
+              COUNT(*) FILTER (WHERE is_refill) AS refills
+       FROM vehicle_fuel_logs vfl
+       ${v.where}`,
+      v.params
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
+              COALESCE(SUM(liters),0) AS liters,
+              COUNT(*) AS count
+       FROM generator_fuel_logs
+       ${d.where}`,
+      d.params
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(montant_ar),0) AS montant_ar,
+              COALESCE(SUM(liters),0) AS liters,
+              COUNT(*) AS count
+       FROM other_fuel_logs
+       ${d.where}`,
+      d.params
+    )
+  ]);
 
   res.json({
     vehicle: vehicleRes.rows[0],
     generator: genRes.rows[0],
     other: otherRes.rows[0]
   });
+}
+
+async function kpiSimpleDaily(req, res) {
+  const { from, to } = req.query;
+  const { where, params } = buildWhereDate({ from, to });
+  const dailyQuery = (tableName) => pool.query(
+    `SELECT log_date,
+            COALESCE(SUM(liters),0) AS liters,
+            COALESCE(SUM(montant_ar),0) AS montant_ar,
+            COUNT(*) AS entries
+     FROM ${tableName}
+     ${where}
+     GROUP BY log_date
+     ORDER BY log_date ASC NULLS LAST`,
+    params
+  );
+
+  // Table names are fixed constants, never request-controlled.
+  const [generator, other] = await Promise.all([
+    dailyQuery('generator_fuel_logs'),
+    dailyQuery('other_fuel_logs')
+  ]);
+  return res.json({ generator: generator.rows, other: other.rows });
 }
 
 async function kpiDaily(req, res) {
@@ -435,7 +468,7 @@ const manualVehicleSchema = z.object({
   compteur: z.number().int().optional().nullable(),
   liters: z.number().optional().nullable(),
   montant_ar: z.number().int().optional().nullable(),
-  lien: z.string().optional().nullable(),
+  lien: optionalHttpUrlSchema,
   chauffeur: z.string().optional().nullable(),
   frns: z.string().optional().nullable()
 });
@@ -522,13 +555,6 @@ async function manualAddOther(req, res) {
 }
 
 // ========== EXPORT CSV ==========
-function csvEscape(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v);
-  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
-}
-
 async function exportCsv(req, res) {
   if (!['LOGISTIQUE', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
 
@@ -590,6 +616,7 @@ module.exports = {
   listGeneratorFuel,
   listOtherFuel,
   reportSummary,
+  kpiSimpleDaily,
   kpiDaily,
   kpiDailyBulk,
   kpiByVehicle,
@@ -604,4 +631,3 @@ module.exports = {
   updateOtherFuel,
   softDeleteOtherFuel
 };
-

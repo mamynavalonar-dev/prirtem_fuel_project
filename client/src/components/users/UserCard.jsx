@@ -15,7 +15,7 @@ function UserCard({
 
   return (
     <StyledWrapper data-mode={mode} data-disabled={isDisabled ? "1" : "0"}>
-      <div className="card" onClick={onOpen} role="button" tabIndex={0}>
+      <div className="card" onClick={onOpen}>
         <button
           className="mail"
           type="button"

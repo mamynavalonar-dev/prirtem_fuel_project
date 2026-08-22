@@ -5,14 +5,15 @@
  * de session côté serveur). doLogoutAndGoLogin attend cet appel avant de
  * naviguer vers /login.
  */
-import React, { useMemo, useState, useEffect, useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import React, { Suspense, useMemo, useState, useEffect, useCallback } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import AnimatedSidebar from "./AnimatedSidebar.jsx";
 import ThemeSwitch from "./ThemeSwitch.jsx";
 import Modal from "./Modal.jsx";
+import { preloadRoutes } from "../routeModules.js";
 
 const MENU = {
   common: [
@@ -43,8 +44,6 @@ const MENU = {
     { to: "/app/fuel", label: "Suivi carburant" },
     { to: "/app/import", label: "Import Excel" },
     { to: "/app/meta", label: "Flotte & Chauffeurs" },
-    { to: "/app/requests/fuel/manage", label: "Valid. carburant" },
-    { to: "/app/requests/car/manage", label: "Valid. voiture" },
     { to: "/app/logbooks", label: "Journal de bord" },
     { to: "/app/trash", label: "Corbeille" },
   ],
@@ -101,6 +100,25 @@ export default function Layout({ children }) {
   const [showSessionExpired, setShowSessionExpired] = useState(false);
 
   const menu = useMemo(() => getMenu(user?.role), [user?.role]);
+
+  useEffect(() => {
+    // Une fois le dashboard peint, telecharge les petits chunks accessibles a
+    // cet utilisateur. Le premier clic sur un menu ne reste plus bloque sur
+    // le reseau ni sur la transformation Vite.
+    const warmRoutes = () => {
+      void preloadRoutes(
+        menu.map((item) => item.to).filter((path) => path !== location.pathname),
+      );
+    };
+    const idleId = window.requestIdleCallback?.(warmRoutes, { timeout: 900 });
+    const timeoutId = idleId === undefined
+      ? window.setTimeout(warmRoutes, 250)
+      : null;
+    return () => {
+      if (idleId !== undefined) window.cancelIdleCallback?.(idleId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [menu, location.pathname]);
 
   const currentTitle = useMemo(() => {
     const path = location.pathname;
@@ -274,7 +292,11 @@ export default function Layout({ children }) {
         </div>
 
         <section className="card" style={contentContainerStyle}>
-          <MemoChildren>{children}</MemoChildren>
+          <Suspense
+            fallback={<div className="muted" role="status">Chargement de la page…</div>}
+          >
+            <MemoChildren>{children ?? <Outlet />}</MemoChildren>
+          </Suspense>
         </section>
       </main>
 

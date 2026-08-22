@@ -125,7 +125,14 @@ function parseDate(v) {
 }
 
 function sheetTo2D(sheet) {
-  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+  const ref = sheet?.['!ref'] || 'A1';
+  const range = XLSX.utils.decode_range(ref);
+  const rowCount = range.e.r - range.s.r + 1;
+  const columnCount = range.e.c - range.s.c + 1;
+  if (rowCount > 10000 || columnCount > 100) {
+    throw new Error('WORKSHEET_LIMIT_EXCEEDED');
+  }
+  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true, range });
 }
 
 module.exports = { norm, parseNumber, toInt, toFloat, parseDate, sheetTo2D, excelDateToJS, isValidYMD };

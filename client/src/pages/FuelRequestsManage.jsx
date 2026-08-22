@@ -18,7 +18,7 @@ export default function FuelRequestsManage() {
   const [editId, setEditId] = useState(null);
   const [edit, setEdit] = useState({ request_date: '', request_type: 'SERVICE', objet: '', amount_estimated_ar: 0, amount_estimated_words: '' });
 
-  const canManage = useMemo(() => ['LOGISTIQUE', 'ADMIN'].includes(role), [role]);
+  const canManage = useMemo(() => role === 'LOGISTIQUE', [role]);
 
   async function load() {
     setLoading(true);

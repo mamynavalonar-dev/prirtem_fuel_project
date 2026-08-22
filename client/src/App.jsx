@@ -1,40 +1,41 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthContext.jsx';
 import { ToastProvider } from './components/ToastContext.jsx';
 import { ThemeProvider } from './components/ThemeContext.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
-import Layout from './components/Layout.jsx';
+import { pageModules } from './routeModules.js';
 
-import Login from './pages/Login.jsx';
-import Forgot from './pages/Forgot.jsx';
-import Reset from './pages/Reset.jsx';
-
-import Dashboard from './pages/Dashboard.jsx';
-import Fuel from './pages/Fuel.jsx';
-import ImportExcel from './pages/ImportExcel.jsx';
-import FuelRequests from './pages/FuelRequests.jsx';
-import CarRequests from './pages/CarRequests.jsx';
-import FuelRequestsManage from './pages/FuelRequestsManage.jsx';
-import FuelRequestsRaf from './pages/FuelRequestsRaf.jsx';
-import CarRequestsManage from './pages/CarRequestsManage.jsx';
-import CarRequestsRaf from './pages/CarRequestsRaf.jsx';
-import CalendarView from './pages/CalendarView.jsx';
-import Logbooks from './pages/Logbooks.jsx';
-import LogbookEdit from './pages/LogbookEdit.jsx';
-import PrintFuelRequest from './pages/PrintFuelRequest.jsx';
-import PrintCarRequest from './pages/PrintCarRequest.jsx';
-import PrintLogbook from './pages/PrintLogbook.jsx';
-import Meta from './pages/Meta.jsx';
-import Trash from './pages/Trash.jsx';
-import Users from './pages/Users.jsx';
+const Login = lazy(pageModules.login);
+const Layout = lazy(pageModules.layout);
+const Forgot = lazy(pageModules.forgot);
+const Reset = lazy(pageModules.reset);
+const Dashboard = lazy(pageModules.dashboard);
+const Fuel = lazy(pageModules.fuel);
+const ImportExcel = lazy(pageModules.importExcel);
+const FuelRequests = lazy(pageModules.fuelRequests);
+const CarRequests = lazy(pageModules.carRequests);
+const FuelRequestsManage = lazy(pageModules.fuelRequestsManage);
+const FuelRequestsRaf = lazy(pageModules.fuelRequestsRaf);
+const CarRequestsManage = lazy(pageModules.carRequestsManage);
+const CarRequestsRaf = lazy(pageModules.carRequestsRaf);
+const CalendarView = lazy(pageModules.calendar);
+const Logbooks = lazy(pageModules.logbooks);
+const LogbookEdit = lazy(pageModules.logbookEdit);
+const PrintFuelRequest = lazy(pageModules.printFuel);
+const PrintCarRequest = lazy(pageModules.printCar);
+const PrintLogbook = lazy(pageModules.printLogbook);
+const Meta = lazy(pageModules.meta);
+const Trash = lazy(pageModules.trash);
+const Users = lazy(pageModules.users);
 
 export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
         <ThemeProvider>
-          <Routes>
+          <Suspense fallback={<div className="container" role="status">Chargement…</div>}>
+            <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/forgot" element={<Forgot />} />
@@ -66,168 +67,36 @@ export default function App() {
               }
             />
 
+            {/* Le Layout reste monte entre deux pages : seule la zone centrale
+                change, sans reconstruire sidebar, topbar et notifications. */}
             <Route
-              path="/app"
               element={
                 <ProtectedRoute>
-                  <Layout>
-                    <Dashboard />
-                  </Layout>
+                  <Layout />
                 </ProtectedRoute>
               }
-            />
+            >
+              <Route path="/app" element={<Dashboard />} />
+              <Route path="/app/fuel" element={<Fuel />} />
+              <Route path="/app/requests/fuel" element={<FuelRequests />} />
+              <Route path="/app/requests/car" element={<CarRequests />} />
+              <Route path="/app/calendar" element={<CalendarView />} />
 
-            <Route
-              path="/app/users"
-              element={
-                <ProtectedRoute roles={['ADMIN']}>
-                  <Layout>
-                    <Users />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/fuel"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <Fuel />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/import"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
-                  <Layout>
-                    <ImportExcel />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/requests/fuel"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <FuelRequests />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/app/requests/fuel/manage"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
-                  <Layout>
-                    <FuelRequestsManage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/app/requests/fuel/raf"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'RAF']}>
-                  <Layout>
-                    <FuelRequestsRaf />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/requests/car"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <CarRequests />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/app/requests/car/manage"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
-                  <Layout>
-                    <CarRequestsManage />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/app/requests/car/raf"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'RAF']}>
-                  <Layout>
-                    <CarRequestsRaf />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/calendar"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <CalendarView />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/meta"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
-                  <Layout>
-                    <Meta />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/trash"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}>
-                  <Layout>
-                    <Trash />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            <Route
-              path="/app/logbooks"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE', 'RAF']}>
-                  <Layout>
-                    <Logbooks />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/app/logbooks/:id"
-              element={
-                <ProtectedRoute roles={['ADMIN', 'LOGISTIQUE', 'RAF']}>
-                  <Layout>
-                    <LogbookEdit />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
+              <Route path="/app/users" element={<ProtectedRoute roles={['ADMIN']}><Users /></ProtectedRoute>} />
+              <Route path="/app/import" element={<ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}><ImportExcel /></ProtectedRoute>} />
+              <Route path="/app/requests/fuel/manage" element={<ProtectedRoute roles={['LOGISTIQUE']}><FuelRequestsManage /></ProtectedRoute>} />
+              <Route path="/app/requests/fuel/raf" element={<ProtectedRoute roles={['RAF']}><FuelRequestsRaf /></ProtectedRoute>} />
+              <Route path="/app/requests/car/manage" element={<ProtectedRoute roles={['LOGISTIQUE']}><CarRequestsManage /></ProtectedRoute>} />
+              <Route path="/app/requests/car/raf" element={<ProtectedRoute roles={['RAF']}><CarRequestsRaf /></ProtectedRoute>} />
+              <Route path="/app/meta" element={<ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}><Meta /></ProtectedRoute>} />
+              <Route path="/app/trash" element={<ProtectedRoute roles={['ADMIN', 'LOGISTIQUE']}><Trash /></ProtectedRoute>} />
+              <Route path="/app/logbooks" element={<ProtectedRoute roles={['ADMIN', 'LOGISTIQUE', 'RAF']}><Logbooks /></ProtectedRoute>} />
+              <Route path="/app/logbooks/:id" element={<ProtectedRoute roles={['ADMIN', 'LOGISTIQUE', 'RAF']}><LogbookEdit /></ProtectedRoute>} />
+            </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
+            </Routes>
+          </Suspense>
         </ThemeProvider>
       </ToastProvider>
     </AuthProvider>

@@ -39,6 +39,15 @@ function displayStatus(u) {
   return { text: 'Actif', cls: 'badge-ok' };
 }
 
+function validatePassword(password) {
+  if (password.length < 12) return 'Le mot de passe doit contenir au moins 12 caractères.';
+  if (!/[a-z]/.test(password)) return 'Le mot de passe doit contenir au moins une lettre minuscule.';
+  if (!/[A-Z]/.test(password)) return 'Le mot de passe doit contenir au moins une lettre majuscule.';
+  if (!/[0-9]/.test(password)) return 'Le mot de passe doit contenir au moins un chiffre.';
+  if (!/[^a-zA-Z0-9]/.test(password)) return 'Le mot de passe doit contenir au moins un caractère spécial.';
+  return '';
+}
+
 export default function Users() {
   const { token } = useAuth();
 
@@ -58,6 +67,7 @@ export default function Users() {
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [usernameTouched, setUsernameTouched] = useState(false);
+  const [formError, setFormError] = useState('');
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -180,6 +190,7 @@ export default function Users() {
   const openCreate = () => {
     setEditingUser(null);
     setUsernameTouched(false);
+    setFormError('');
     setFormData({
       first_name: '',
       last_name: '',
@@ -197,6 +208,7 @@ export default function Users() {
   const openEdit = (user) => {
     setEditingUser(user);
     setUsernameTouched(true);
+    setFormError('');
     setFormData({
       first_name: user.first_name || '',
       last_name: user.last_name || '',
@@ -214,18 +226,27 @@ export default function Users() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setFormError('');
 
     if (!formData.first_name.trim() || !formData.last_name.trim()) {
-      alert('Prénom/Nom obligatoires');
+      setFormError('Le prénom et le nom sont obligatoires.');
       return;
     }
     if (!formData.username.trim() || formData.username.trim().length < 3) {
-      alert('Username min 3 caractères');
+      setFormError('L’identifiant doit contenir au moins 3 caractères.');
       return;
     }
     if (!String(formData.email || '').includes('@')) {
-      alert('Email invalide');
+      setFormError('L’adresse email est invalide.');
       return;
+    }
+
+    if (!editingUser || formData.password) {
+      const passwordError = validatePassword(formData.password);
+      if (passwordError) {
+        setFormError(passwordError);
+        return;
+      }
     }
 
     try {
@@ -240,7 +261,7 @@ export default function Users() {
         });
       } else {
         if (!formData.password) {
-          alert('Le mot de passe est obligatoire pour la création.');
+          setFormError('Le mot de passe est obligatoire pour la création.');
           return;
         }
         await apiFetch('/api/users', {
@@ -252,7 +273,7 @@ export default function Users() {
       setShowModal(false);
       await loadUsers();
     } catch (err) {
-      alert(err.message || 'Erreur');
+      setFormError(err.message || 'Impossible de créer l’utilisateur.');
     }
   };
 
@@ -546,6 +567,12 @@ export default function Users() {
           width={720}
         >
           <form onSubmit={handleSubmit} className="form">
+            {formError && (
+              <div className="alert alert-danger" role="alert">
+                {formError}
+              </div>
+            )}
+
             <div className="grid2">
               <label className="field">
                 <span className="label">Prénom</span>
@@ -664,9 +691,17 @@ export default function Users() {
                 className="input"
                 placeholder={editingUser ? 'Nouveau mot de passe...' : 'Mot de passe obligatoire'}
                 value={formData.password}
-                onChange={e => setFormData({ ...formData, password: e.target.value })}
+                onChange={e => {
+                  setFormError('');
+                  setFormData({ ...formData, password: e.target.value });
+                }}
                 required={!editingUser}
+                minLength={12}
+                autoComplete="new-password"
               />
+              <div className="hint">
+                12 caractères minimum avec majuscule, minuscule, chiffre et caractère spécial.
+              </div>
             </div>
 
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16, gap: 10 }}>

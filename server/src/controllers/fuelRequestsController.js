@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../db');
 const { auditLog } = require('../utils/audit');
+const { auditedMutation } = require('../utils/auditedMutation');
 
 function fmtNo(seq, year) {
   return `N° ${String(seq).padStart(3, '0')}/${year}`;
@@ -9,6 +10,7 @@ function fmtNo(seq, year) {
 
 async function nextRequestNo(client) {
   const year = new Date().getFullYear();
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`fuel_request:${year}`]);
   const { rows } = await client.query(
     `SELECT COALESCE(MAX(seq),0) AS max_seq
      FROM fuel_requests
@@ -34,8 +36,14 @@ function ymdGte(a, b) {
 async function list(req, res) {
   const role = req.user.role;
   const userId = req.user.id;
-  const page = Math.max(parseInt(req.query.page || '1', 10), 1);
-  const limit = Math.min(parseInt(req.query.limit || '50', 10), 100); // Max 100 per page
+  const pagination = z.object({
+    page: z.coerce.number().int().min(1).max(100000).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(50)
+  }).safeParse({ page: req.query.page ?? 1, limit: req.query.limit ?? 50 });
+  if (!pagination.success) {
+    return res.status(400).json({ error: 'VALIDATION', details: pagination.error.flatten() });
+  }
+  const { page, limit } = pagination.data;
   const offset = (page - 1) * limit;
 
   // Optional: ?status=SUBMITTED or ?status=SUBMITTED,VERIFIED
@@ -70,17 +78,8 @@ async function list(req, res) {
   sql += ` ORDER BY fr.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
 	  params.push(limit, offset);
 
-	  // Main query execution with defensive error handling
-	  let requestRows = [];
-	  try {
-	    const result = await pool.query(sql, params);
-	    if (result && result.rows && Array.isArray(result.rows)) {
-	      requestRows = result.rows;
-	    }
-	  } catch (error) {
-	    console.error('Error in main query in fuelRequestsController.list:', error);
-	    // Continue with empty requestRows to allow partial functionality
-	  }
+  const result = await pool.query(sql, params);
+  const requestRows = Array.isArray(result?.rows) ? result.rows : [];
 
   // Get total count for pagination
   let countSql = `SELECT COUNT(*) FROM fuel_requests fr WHERE fr.deleted_at IS NULL`;
@@ -94,23 +93,8 @@ async function list(req, res) {
     countSql += ` AND fr.status = ANY($${idx})`;
     countParams.push(statuses);
   }
-  // Get total count for pagination with defensive error handling
-  let count = 0;
-  try {
-    const result = await pool.query(countSql, countParams);
-    // Defensive validation of query result
-    if (result && result.rows && Array.isArray(result.rows)) {
-      if (result.rows.length > 0) {
-        const firstRow = result.rows[0];
-        if (firstRow && typeof firstRow === 'object' && 'count' in firstRow) {
-          count = Number(firstRow.count) || 0;
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error executing count query in fuelRequestsController.list:', error);
-    // Continue with count=0 to allow partial functionality - better than crashing
-  }
+  const countResult = await pool.query(countSql, countParams);
+  const count = Number(countResult?.rows?.[0]?.count || 0);
 
   res.json({
     requests: requestRows,
@@ -178,27 +162,31 @@ async function create(req, res) {
   if (!parsed.success) return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
 
   const client = await pool.connect();
+  let transactionOpen = false;
   try {
     await client.query('BEGIN');
+    transactionOpen = true;
     const { year, seq, request_no } = await nextRequestNo(client);
 
     const d = parsed.data;
     const start = d.request_date;
-    const end = d.end_date || d.request_date; // default to request_date if not provided
+    const end = d.end_date || d.request_date;
 
     if (!ymdGte(end, start)) {
       await client.query('ROLLBACK');
+      transactionOpen = false;
       return res.status(400).json({ error: 'VALIDATION', details: { end_date: ['end_date doit être >= request_date'] } });
     }
 
     const id = uuidv4();
-    await client.query(
+    const inserted = await client.query(
       `INSERT INTO fuel_requests (
         id, year, seq, request_no,
         request_type, objet, amount_estimated_ar, amount_estimated_words,
         request_date, end_date,
         status, requester_id, submitted_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SUBMITTED',$11, now())`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SUBMITTED',$11, now())
+      RETURNING *`,
       [
         id,
         Number(year),
@@ -214,20 +202,20 @@ async function create(req, res) {
       ]
     );
 
-    await client.query('COMMIT');
-
-    // Log audit
     await auditLog({
       actorId: req.user.id,
       action: 'CREATE_FUEL_REQUEST',
       targetUserId: req.user.id,
-      meta: { requestId: id }
+      meta: { requestId: id },
+      db: client,
+      required: true
     });
 
-    const { rows } = await pool.query('SELECT * FROM fuel_requests WHERE id=$1', [id]);
-    res.json({ request: rows[0] });
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return res.json({ request: inserted.rows[0] });
   } catch (e) {
-    await client.query('ROLLBACK');
+    if (transactionOpen) await client.query('ROLLBACK');
     throw e;
   } finally {
     client.release();
@@ -241,107 +229,66 @@ async function submit(req, res) {
   if (req.user.role !== 'DEMANDEUR') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET status='SUBMITTED', submitted_at=now(), updated_at=now()
-     WHERE id=$1 AND requester_id=$2 AND status IN ('DRAFT','REJECTED')
-     RETURNING *`,
-    [id, req.user.id]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
-
-  // Log audit
-  await auditLog({
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET status='SUBMITTED', submitted_at=now(), updated_at=now()
+          WHERE id=$1 AND requester_id=$2 AND status IN ('DRAFT','REJECTED')
+          RETURNING *`,
+    params: [id, req.user.id],
     actorId: req.user.id,
     action: 'SUBMIT_FUEL_REQUEST',
-    targetUserId: req.user.id,
-    meta: { requestId: id }
+    targetUserId: (request) => request.requester_id,
+    meta: { requestId: id, newStatus: 'SUBMITTED' }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  return res.json({ request: row });
 }
 
 /**
- * Verify a request (LOGISTIQUE, RAF, ADMIN can verify SUBMITTED requests).
+ * Verify a request (LOGISTIQUE only).
  */
 async function verify(req, res) {
-  const allowedRoles = ['LOGISTIQUE', 'RAF', 'ADMIN'];
-  if (!allowedRoles.includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
+  if (req.user.role !== 'LOGISTIQUE') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET status='VERIFIED', verified_at=now(), verified_by=$2, updated_at=now()
-     WHERE id=$1 AND status='SUBMITTED'
-     RETURNING *`,
-    [id, req.user.id]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
-
-  // Prevent self-verification
-  if (rows[0].requester_id === req.user.id) {
-    // Revert the change
-    await pool.query(
-      `UPDATE fuel_requests
-       SET status='SUBMITTED', verified_at=NULL, verified_by=NULL, updated_at=now()
-       WHERE id=$1`,
-      [id]
-    );
-    return res.status(403).json({ error: 'SELF_VERIFICATION_FORBIDDEN' });
-  }
-
-  // Log audit
-  await auditLog({
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET status='VERIFIED', verified_at=now(), verified_by=$2, updated_at=now()
+          WHERE id=$1 AND status='SUBMITTED' AND requester_id<>$2
+          RETURNING *`,
+    params: [id, req.user.id],
     actorId: req.user.id,
     action: 'VERIFY_FUEL_REQUEST',
-    targetUserId: req.user.id,
+    targetUserId: (request) => request.requester_id,
     meta: { requestId: id, newStatus: 'VERIFIED' }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  return res.json({ request: row });
 }
 
 /**
- * Approve a request (RAF, ADMIN can approve VERIFIED requests).
+ * Approve a request (RAF only, different from the verifier/requester).
  */
 async function approve(req, res) {
-  const allowedRoles = ['RAF', 'ADMIN'];
-  if (!allowedRoles.includes(req.user.role)) return res.status(403).json({ error: 'FORBIDDEN' });
+  if (req.user.role !== 'RAF') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET status='APPROVED', approved_at=now(), approved_by=$2, updated_at=now()
-     WHERE id=$1 AND status='VERIFIED'
-     RETURNING *`,
-    [id, req.user.id]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
-
-  // Prevent self-approval
-  if (rows[0].requester_id === req.user.id) {
-    // Revert
-    await pool.query(
-      `UPDATE fuel_requests
-       SET status='VERIFIED', approved_at=NULL, approved_by=NULL, updated_at=now()
-       WHERE id=$1`,
-      [id]
-    );
-    return res.status(403).json({ error: 'SELF_APPROVAL_FORBIDDEN' });
-  }
-
-  // Log audit
-  await auditLog({
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET status='APPROVED', approved_at=now(), approved_by=$2, updated_at=now()
+          WHERE id=$1 AND status='VERIFIED' AND requester_id<>$2 AND verified_by<>$2
+          RETURNING *`,
+    params: [id, req.user.id],
     actorId: req.user.id,
     action: 'APPROVE_FUEL_REQUEST',
-    targetUserId: req.user.id,
+    targetUserId: (request) => request.requester_id,
     meta: { requestId: id, newStatus: 'APPROVED' }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  return res.json({ request: row });
 }
 
 /**
@@ -353,42 +300,29 @@ async function reject(req, res) {
 
   const { id } = req.params;
   const { reason } = req.body;
+  const allowedStatuses = req.user.role === 'LOGISTIQUE'
+    ? ['SUBMITTED']
+    : (req.user.role === 'RAF' ? ['VERIFIED'] : ['SUBMITTED', 'VERIFIED']);
 
   if (!reason || typeof reason !== 'string' || !reason.trim()) {
     return res.status(400).json({ error: 'VALIDATION', details: { reason: ['Rejection reason is required'] } });
   }
 
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET status='REJECTED', rejected_at=now(), rejected_by=$2, reject_reason=$3, updated_at=now()
-     WHERE id=$1 AND status IN ('SUBMITTED','VERIFIED')
-     RETURNING *`,
-    [id, req.user.id, reason.trim()]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
-
-  // Prevent self-rejection
-  if (rows[0].requester_id === req.user.id) {
-    // Revert
-    await pool.query(
-      `UPDATE fuel_requests
-       SET status='SUBMITTED', rejected_at=NULL, rejected_by=NULL, reject_reason=NULL, updated_at=now()
-       WHERE id=$1`,
-      [id]
-    );
-    return res.status(403).json({ error: 'SELF_REJECTION_FORBIDDEN' });
-  }
-
-  // Log audit
-  await auditLog({
+  const cleanReason = reason.trim();
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET status='REJECTED', rejected_at=now(), rejected_by=$2, reject_reason=$3, updated_at=now()
+          WHERE id=$1 AND status = ANY($4::fuel_request_status[]) AND requester_id<>$2
+          RETURNING *`,
+    params: [id, req.user.id, cleanReason, allowedStatuses],
     actorId: req.user.id,
     action: 'REJECT_FUEL_REQUEST',
-    targetUserId: req.user.id,
-    meta: { requestId: id, reason: reason.trim() }
+    targetUserId: (request) => request.requester_id,
+    meta: { requestId: id, reason: cleanReason, newStatus: 'REJECTED' }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  return res.json({ request: row });
 }
 
 /**
@@ -398,54 +332,43 @@ async function cancel(req, res) {
   if (req.user.role !== 'DEMANDEUR') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET status='CANCELLED', cancelled_at=now(), cancelled_by=$2, updated_at=now()
-     WHERE id=$1 AND status IN ('SUBMITTED','VERIFIED')
-     RETURNING *`,
-    [id, req.user.id]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
-
-  // Log audit
-  await auditLog({
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET status='CANCELLED', cancelled_at=now(), cancelled_by=$2, updated_at=now()
+          WHERE id=$1 AND requester_id=$2 AND status IN ('SUBMITTED','VERIFIED')
+          RETURNING *`,
+    params: [id, req.user.id],
     actorId: req.user.id,
     action: 'CANCEL_FUEL_REQUEST',
-    targetUserId: req.user.id,
-    meta: { requestId: id }
+    targetUserId: (request) => request.requester_id,
+    meta: { requestId: id, newStatus: 'CANCELLED' }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_BAD_STATUS' });
+  return res.json({ request: row });
 }
 
 /**
  * Soft delete a request (ADMIN only).
  */
 async function softDelete(req, res) {
-  // Only ADMIN can soft delete requests
   if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  const { rows } = await pool.query(
-    `UPDATE fuel_requests
-     SET deleted_at=now(), deleted_by=$2
-     WHERE id=$1 AND deleted_at IS NULL
-     RETURNING *`,
-    [id, req.user.id]
-  );
-
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_ALREADY_DELETED' });
-
-  // Log audit
-  await auditLog({
+  const row = await auditedMutation({
+    sql: `UPDATE fuel_requests
+          SET deleted_at=now(), deleted_by=$2, updated_at=now()
+          WHERE id=$1 AND deleted_at IS NULL
+          RETURNING *`,
+    params: [id, req.user.id],
     actorId: req.user.id,
     action: 'SOFT_DELETE_FUEL_REQUEST',
-    targetUserId: req.user.id,
+    targetUserId: (request) => request.requester_id,
     meta: { requestId: id }
   });
 
-  res.json({ request: rows[0] });
+  if (!row) return res.status(404).json({ error: 'NOT_FOUND_OR_ALREADY_DELETED' });
+  return res.json({ request: row });
 }
 
 /**
@@ -456,7 +379,6 @@ async function update(req, res) {
   if (req.user.role !== 'DEMANDEUR') return res.status(403).json({ error: 'FORBIDDEN' });
 
   const { id } = req.params;
-  // We'll allow updating the same fields as create, except request_type? Actually, request_type can be changed.
   const updateSchema = z.object({
     request_type: z.enum(['SERVICE', 'MISSION']).optional(),
     objet: z.string().min(1).optional(),
@@ -468,74 +390,91 @@ async function update(req, res) {
 
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
+  if (!Object.keys(parsed.data).length) return res.status(400).json({ error: 'NO_FIELDS_TO_UPDATE' });
 
-  const { rows } = await pool.query(
-    `SELECT status FROM fuel_requests WHERE id=$1 AND requester_id=$2 AND deleted_at IS NULL`,
-    [id, req.user.id]
-  );
+  const client = await pool.connect();
+  let transactionOpen = false;
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
 
-  if (!rows[0]) return res.status(404).json({ error: 'NOT_FOUND_OR_NOT_OWNER' });
-  if (rows[0].status !== 'DRAFT') return res.status(400).json({ error: 'INVALID_STATUS', details: { status: ['Only draft requests can be updated'] } });
+    const currentResult = await client.query(
+      `SELECT status, requester_id, request_date, end_date
+       FROM fuel_requests
+       WHERE id=$1 AND requester_id=$2 AND deleted_at IS NULL
+       FOR UPDATE`,
+      [id, req.user.id]
+    );
+    const current = currentResult.rows[0];
+    if (!current) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ error: 'NOT_FOUND_OR_NOT_OWNER' });
+    }
+    if (!['DRAFT', 'SUBMITTED'].includes(current.status)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(400).json({ error: 'INVALID_STATUS', details: { status: ['Request can no longer be updated'] } });
+    }
 
-  const updates = [];
-  const values = [];
-  let index = 1;
+    const updates = [];
+    const values = [];
+    let index = 1;
+    const data = parsed.data;
+    const nextStart = data.request_date || String(current.request_date).slice(0, 10);
+    const nextEnd = data.end_date || String(current.end_date).slice(0, 10);
+    if (!ymdGte(nextEnd, nextStart)) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(400).json({ error: 'VALIDATION', details: { end_date: ['end_date doit être >= request_date'] } });
+    }
 
-  const data = parsed.data;
-  if (data.request_type !== undefined) {
-    updates.push(`request_type=$${index++}`);
-    values.push(data.request_type);
+    if (data.request_type !== undefined) { updates.push(`request_type=$${index++}`); values.push(data.request_type); }
+    if (data.objet !== undefined) { updates.push(`objet=$${index++}`); values.push(data.objet); }
+    if (data.amount_estimated_ar !== undefined) { updates.push(`amount_estimated_ar=$${index++}`); values.push(Number(data.amount_estimated_ar)); }
+    if (data.amount_estimated_words !== undefined) { updates.push(`amount_estimated_words=$${index++}`); values.push(data.amount_estimated_words); }
+    if (data.request_date !== undefined) { updates.push(`request_date=$${index++}`); values.push(data.request_date); }
+    if (data.end_date !== undefined) { updates.push(`end_date=$${index++}`); values.push(data.end_date); }
+
+    updates.push('updated_at=now()');
+    const idParam = values.length + 1;
+    values.push(id);
+    const userParam = values.length + 1;
+    values.push(req.user.id);
+
+    const result = await client.query(
+      `UPDATE fuel_requests
+       SET ${updates.join(', ')}
+       WHERE id=$${idParam} AND requester_id=$${userParam}
+         AND status IN ('DRAFT','SUBMITTED') AND deleted_at IS NULL
+       RETURNING *`,
+      values
+    );
+    const row = result.rows[0];
+    if (!row) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return res.status(404).json({ error: 'UPDATE_FAILED' });
+    }
+
+    await auditLog({
+      actorId: req.user.id,
+      action: 'UPDATE_FUEL_REQUEST',
+      targetUserId: row.requester_id,
+      meta: { requestId: id, changes: data },
+      db: client,
+      required: true
+    });
+
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return res.json({ request: row });
+  } catch (error) {
+    if (transactionOpen) await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-  if (data.objet !== undefined) {
-    updates.push(`objet=$${index++}`);
-    values.push(data.objet);
-  }
-  if (data.amount_estimated_ar !== undefined) {
-    updates.push(`amount_estimated_ar=$${index++}`);
-    values.push(Number(data.amount_estimated_ar));
-  }
-  if (data.amount_estimated_words !== undefined) {
-    updates.push(`amount_estimated_words=$${index++}`);
-    values.push(data.amount_estimated_words);
-  }
-  if (data.request_date !== undefined) {
-    updates.push(`request_date=$${index++}`);
-    values.push(data.request_date);
-  }
-  if (data.end_date !== undefined) {
-    updates.push(`end_date=$${index++}`);
-    values.push(data.end_date);
-  }
-
-  if (updates.length === 0) return res.status(400).json({ error: 'NO_FIELDS_TO_UPDATE' });
-
-  // Add updated_at
-  updates.push(`updated_at=now()`);
-  values.push(id, req.user.id); // for WHERE clause
-
-  const sql = `
-    UPDATE fuel_requests
-    SET ${updates.join(', ')}
-    WHERE id=$${index-2} AND requester_id=$${index-1} AND deleted_at IS NULL
-    RETURNING *
-  `;
-
-  const result = await pool.query(sql, values);
-  let updatedRows = [];
-  if (result && result.rows && Array.isArray(result.rows)) {
-    updatedRows = result.rows;
-  }
-  if (!updatedRows[0]) return res.status(404).json({ error: 'UPDATE_FAILED' });
-
-  // Log audit
-  await auditLog({
-    actorId: req.user.id,
-    action: 'UPDATE_FUEL_REQUEST',
-    targetUserId: req.user.id,
-    meta: { requestId: id, changes: data }
-  });
-
-  res.json({ request: updatedRows[0] });
 }
 
 module.exports = {

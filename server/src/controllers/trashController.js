@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const { pool } = require('../db');
+const { auditLog } = require('../utils/audit');
 
 /**
  * Corbeille (soft delete)
@@ -214,6 +215,38 @@ const ENTITIES = {
   }
 };
 
+
+async function runTrashMutation({ sql, params = [], actorId, action, meta, requireMatch = false }) {
+  const client = await pool.connect();
+  let transactionOpen = false;
+  try {
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const result = await client.query(sql, params);
+    if (requireMatch && !result.rowCount) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
+      return null;
+    }
+    await auditLog({
+      actorId,
+      action,
+      targetUserId: null,
+      meta: { ...meta, count: result.rowCount },
+      db: client,
+      required: true
+    });
+    await client.query('COMMIT');
+    transactionOpen = false;
+    return result;
+  } catch (error) {
+    if (transactionOpen) await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function mustBeAdminOrLogistique(req, res) {
   const role = req.user?.role;
   if (!['ADMIN', 'LOGISTIQUE'].includes(role)) {
@@ -333,98 +366,107 @@ exports.list = asyncHandler(async (req, res) => {
 /** RESTORE 1 */
 exports.restore = asyncHandler(async (req, res) => {
   if (!mustBeAdminOrLogistique(req, res)) return;
-
   const { entity, id } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rowCount } = await pool.query(
-    `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE id=$1`,
-    [id]
-  );
-  if (!rowCount) return res.status(404).json({ error: 'Introuvable' });
-
-  res.json({ ok: true });
+  const result = await runTrashMutation({
+    sql: `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE id=$1 AND deleted_at IS NOT NULL RETURNING id`,
+    params: [id],
+    actorId: req.user.id,
+    action: 'TRASH_RESTORE',
+    meta: { entity, id },
+    requireMatch: true
+  });
+  if (!result) return res.status(404).json({ error: 'Introuvable' });
+  return res.json({ ok: true });
 });
 
 /** HARD DELETE 1 */
 exports.hardDelete = asyncHandler(async (req, res) => {
-  if (!mustBeAdminOrLogistique(req, res)) return;
-
+  if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Accès refusé' });
   const { entity, id } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rowCount } = await pool.query(`DELETE FROM ${ent.table} WHERE id=$1`, [id]);
-  if (!rowCount) return res.status(404).json({ error: 'Introuvable' });
-
-  res.json({ ok: true });
+  const result = await runTrashMutation({
+    sql: `DELETE FROM ${ent.table} WHERE id=$1 AND deleted_at IS NOT NULL RETURNING id`,
+    params: [id],
+    actorId: req.user.id,
+    action: 'TRASH_HARD_DELETE',
+    meta: { entity, id },
+    requireMatch: true
+  });
+  if (!result) return res.status(404).json({ error: 'Introuvable' });
+  return res.json({ ok: true });
 });
 
 /** RESTORE MANY */
 exports.restoreMany = asyncHandler(async (req, res) => {
   if (!mustBeAdminOrLogistique(req, res)) return;
-
   const { entity } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
-
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   if (!ids.length) return res.json({ ok: true, restored: 0 });
 
-  const { rowCount } = await pool.query(
-    `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE id = ANY($1::uuid[])`,
-    [ids]
-  );
-
-  res.json({ ok: true, restored: rowCount });
+  const result = await runTrashMutation({
+    sql: `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL RETURNING id`,
+    params: [ids],
+    actorId: req.user.id,
+    action: 'TRASH_RESTORE_MANY',
+    meta: { entity, ids }
+  });
+  return res.json({ ok: true, restored: result.rowCount });
 });
 
 /** HARD DELETE MANY */
 exports.hardDeleteMany = asyncHandler(async (req, res) => {
-  if (!mustBeAdminOrLogistique(req, res)) return;
-
+  if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Accès refusé' });
   const { entity } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
-
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   if (!ids.length) return res.json({ ok: true, deleted: 0 });
 
-  const { rowCount } = await pool.query(
-    `DELETE FROM ${ent.table} WHERE id = ANY($1::uuid[])`,
-    [ids]
-  );
-
-  res.json({ ok: true, deleted: rowCount });
+  const result = await runTrashMutation({
+    sql: `DELETE FROM ${ent.table} WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL RETURNING id`,
+    params: [ids],
+    actorId: req.user.id,
+    action: 'TRASH_HARD_DELETE_MANY',
+    meta: { entity, ids }
+  });
+  return res.json({ ok: true, deleted: result.rowCount });
 });
 
 /** RESTORE ALL (pour ce type) */
 exports.restoreAll = asyncHandler(async (req, res) => {
   if (!mustBeAdminOrLogistique(req, res)) return;
-
   const { entity } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rowCount } = await pool.query(
-    `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE deleted_at IS NOT NULL`
-  );
-
-  res.json({ ok: true, restored: rowCount });
+  const result = await runTrashMutation({
+    sql: `UPDATE ${ent.table} SET deleted_at=NULL, deleted_by=NULL WHERE deleted_at IS NOT NULL RETURNING id`,
+    actorId: req.user.id,
+    action: 'TRASH_RESTORE_ALL',
+    meta: { entity }
+  });
+  return res.json({ ok: true, restored: result.rowCount });
 });
 
 /** PURGE ALL (vider la corbeille pour ce type) */
 exports.purgeAll = asyncHandler(async (req, res) => {
-  if (!mustBeAdminOrLogistique(req, res)) return;
-
+  if (req.user?.role !== 'ADMIN') return res.status(403).json({ error: 'Accès refusé' });
   const { entity } = req.params;
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const { rowCount } = await pool.query(
-    `DELETE FROM ${ent.table} WHERE deleted_at IS NOT NULL`
-  );
-
-  res.json({ ok: true, deleted: rowCount });
+  const result = await runTrashMutation({
+    sql: `DELETE FROM ${ent.table} WHERE deleted_at IS NOT NULL RETURNING id`,
+    actorId: req.user.id,
+    action: 'TRASH_PURGE_ALL',
+    meta: { entity }
+  });
+  return res.json({ ok: true, deleted: result.rowCount });
 });
