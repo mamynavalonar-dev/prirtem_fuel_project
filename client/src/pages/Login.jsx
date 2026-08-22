@@ -236,6 +236,46 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoConfig, setDemoConfig] = useState({ enabled: false, roles: [] });
+  const [demoRoleLoading, setDemoRoleLoading] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    apiFetch("/api/auth/demo-config", { retries: 0, timeoutMs: 5000 })
+      .then((config) => {
+        if (active && config?.enabled) {
+          setDemoConfig({
+            enabled: true,
+            roles: Array.isArray(config.roles) ? config.roles : [],
+          });
+        }
+      })
+      .catch(() => {
+        // L'application institutionnelle fonctionne normalement sans mode démo.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleDemoLogin = async (role) => {
+    if (loading || demoRoleLoading) return;
+
+    setError("");
+    setDemoRoleLoading(role);
+    try {
+      const response = await apiFetch("/api/auth/demo-login", {
+        method: "POST",
+        body: { role },
+      });
+      login(response.user);
+      navigate("/app");
+    } catch (requestError) {
+      setError(getLoginErrorMessage(requestError));
+    } finally {
+      setDemoRoleLoading("");
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -364,6 +404,47 @@ export default function Login() {
               )}
             </button>
           </form>
+
+          {demoConfig.enabled ? (
+            <section className="login-demo" aria-label="Mode démonstration publique">
+              <div className="login-demo__heading">
+                <div>
+                  <span className="login-demo__eyebrow">Mode démonstration</span>
+                  <strong>Tester le workflow avec un rôle</strong>
+                </div>
+                <span className="login-demo__live">Données fictives</span>
+              </div>
+
+              <p className="login-demo__description">
+                Ouvrez une session de démonstration sans mot de passe. Les opérations sensibles
+                sur le référentiel global restent protégées.
+              </p>
+
+              <div className="login-demo__actions">
+                {demoConfig.roles.map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    className="login-demo__button"
+                    disabled={loading || Boolean(demoRoleLoading)}
+                    aria-busy={demoRoleLoading === role}
+                    onClick={() => handleDemoLogin(role)}
+                  >
+                    <span>
+                      {role === "DEMANDEUR"
+                        ? "Demandeur"
+                        : role === "LOGISTIQUE"
+                          ? "Logistique"
+                          : "RAF"}
+                    </span>
+                    <small>
+                      {demoRoleLoading === role ? "Ouverture…" : "Tester ce rôle"}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <footer className="login-access__footer">
             <IconShield />

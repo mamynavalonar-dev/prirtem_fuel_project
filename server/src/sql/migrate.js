@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { pool } = require('../db');
+const { pool, createPool } = require('../db');
 const initial = require('./migrations/001_initial');
 const legacyAlignment = require('./migrations/002_legacy_alignment');
 const integrity = require('./migrations/003_integrity');
@@ -9,14 +9,31 @@ const migrations = [initial, legacyAlignment, integrity];
 const MIGRATION_LOCK_ID = 1732050807;
 
 async function relationExists(client, relationName) {
-  const { rows } = await client.query('SELECT to_regclass($1) AS relation', [`public.${relationName}`]);
+  const { rows } = await client.query(
+    'SELECT to_regclass($1) AS relation',
+    [`public.${relationName}`]
+  );
   return Boolean(rows[0]?.relation);
 }
 
+function getMigrationPool() {
+  const migrationUrl = process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL;
+  if (!process.env.MIGRATION_DATABASE_URL || migrationUrl === process.env.DATABASE_URL) {
+    return { migrationPool: pool, ownsPool: false };
+  }
+
+  return {
+    migrationPool: createPool(migrationUrl, { max: 1 }),
+    ownsPool: true
+  };
+}
+
 async function runMigrations() {
-  const client = await pool.connect();
+  const { migrationPool, ownsPool } = getMigrationPool();
+  let client;
 
   try {
+    client = await migrationPool.connect();
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -28,7 +45,6 @@ async function runMigrations() {
     const { rows } = await client.query('SELECT id FROM schema_migrations');
     const applied = new Set(rows.map((row) => row.id));
 
-    // Baseline a pre-migration installation without replaying schema.sql.
     if (!applied.has(initial.id) && await relationExists(client, 'users')) {
       await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [initial.id]);
       applied.add(initial.id);
@@ -48,8 +64,11 @@ async function runMigrations() {
       }
     }
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
-    client.release();
+    if (client) {
+      await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
+      client.release();
+    }
+    if (ownsPool) await migrationPool.end();
   }
 }
 
@@ -63,4 +82,4 @@ if (require.main === module) {
     .finally(() => pool.end());
 }
 
-module.exports = { runMigrations };
+module.exports = { runMigrations, getMigrationPool };

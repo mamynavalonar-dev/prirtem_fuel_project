@@ -8,6 +8,9 @@ const { detectExcelType } = require('../utils/excel/detectType');
 const { parseVehicleFuelWorkbook } = require('../utils/excel/parseVehicleFuel');
 const { parseGeneratorWorkbook } = require('../utils/excel/parseGenerator');
 const { parseOtherWorkbook } = require('../utils/excel/parseOther');
+const { getImportLimits } = require('../utils/importLimits');
+
+const IMPORT_LIMITS = getImportLimits();
 
 const EXCEL_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -18,7 +21,11 @@ const batchIdSchema = z.string().uuid();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 5, parts: 10 },
+  limits: {
+    fileSize: IMPORT_LIMITS.maxFileSizeBytes,
+    files: IMPORT_LIMITS.maxFiles,
+    parts: IMPORT_LIMITS.maxFiles + 5
+  },
   fileFilter(_req, file, callback) {
     const extension = path.extname(file.originalname || '').toLowerCase();
     if (extension !== '.xlsx' || !EXCEL_MIME_TYPES.has(file.mimetype)) {
@@ -223,4 +230,15 @@ async function listFiles(req, res) {
   res.json({ files: rows });
 }
 
-module.exports = { upload, createBatch, uploadAndImport, listBatches, listFiles, insertRows };
+const uploadFiles = upload.array('files', IMPORT_LIMITS.maxFiles);
+
+module.exports = {
+  upload,
+  uploadFiles,
+  IMPORT_LIMITS,
+  createBatch,
+  uploadAndImport,
+  listBatches,
+  listFiles,
+  insertRows
+};

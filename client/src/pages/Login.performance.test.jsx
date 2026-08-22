@@ -16,7 +16,7 @@ vi.mock("../auth/AuthContext.jsx", () => ({
 }));
 
 vi.mock("../utils/api.js", () => ({
-  apiFetch: vi.fn(),
+  apiFetch: vi.fn(() => Promise.resolve({ enabled: false, roles: [] })),
 }));
 
 vi.mock("react-router-dom", () => ({

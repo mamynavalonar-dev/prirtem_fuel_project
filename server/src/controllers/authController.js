@@ -6,6 +6,12 @@ const { z } = require('zod');
 const { pool } = require('../db');
 const { sendResetEmail } = require('../utils/mailer');
 const { passwordSchema } = require('../utils/passwordPolicy');
+const {
+  DEMO_ROLES,
+  getDemoUsername,
+  isDemoMode,
+  isDemoUser
+} = require('../utils/demoMode');
 
 const AUTH_COOKIE_NAME = 'prirtem_session';
 const SESSION_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -47,7 +53,8 @@ function publicUser(user) {
     username: user.username,
     email: user.email,
     role: user.role,
-    permissions: user.permissions || []
+    permissions: user.permissions || [],
+    is_demo: isDemoUser(user)
   };
 }
 
@@ -79,6 +86,49 @@ async function login(req, res) {
   return res.json({ user: publicUser(user) });
 }
 
+const demoLoginSchema = z.object({
+  role: z.enum(DEMO_ROLES)
+});
+
+async function demoConfig(_req, res) {
+  return res.json({
+    enabled: isDemoMode(),
+    roles: isDemoMode() ? DEMO_ROLES : []
+  });
+}
+
+async function demoLogin(req, res) {
+  if (!isDemoMode()) {
+    return res.status(404).json({ error: 'NOT_FOUND' });
+  }
+
+  const parsed = demoLoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
+  }
+
+  const username = getDemoUsername(parsed.data.role);
+  const { rows } = await pool.query(
+    `SELECT id, first_name, last_name, username, email, role,
+            is_active, is_blocked, token_version, permissions
+     FROM users
+     WHERE lower(username)=lower($1)`,
+    [username]
+  );
+
+  const user = rows[0];
+  if (!user || !user.is_active || user.is_blocked || !isDemoUser(user)) {
+    return res.status(503).json({
+      error: 'DEMO_ACCOUNT_NOT_READY',
+      message: 'Le compte de démonstration demandé n’est pas encore disponible.'
+    });
+  }
+
+  await pool.query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
+  setAuthCookie(res, signToken(user));
+  return res.json({ user: publicUser(user), demo: true });
+}
+
 async function logout(req, res) {
   const options = authCookieOptions();
   delete options.maxAge;
@@ -93,6 +143,10 @@ function hashResetToken(token) {
 }
 
 async function forgotPassword(req, res) {
+  if (isDemoMode()) {
+    return res.json({ ok: true });
+  }
+
   const parsed = forgotSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
@@ -144,6 +198,13 @@ const resetSchema = z.object({
 });
 
 async function resetPassword(req, res) {
+  if (isDemoMode()) {
+    return res.status(403).json({
+      error: 'DEMO_PASSWORD_RESET_DISABLED',
+      message: 'La réinitialisation de mot de passe est désactivée sur la démonstration publique.'
+    });
+  }
+
   const parsed = resetSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'VALIDATION', details: parsed.error.flatten() });
@@ -201,6 +262,8 @@ module.exports = {
   AUTH_COOKIE_NAME,
   passwordSchema,
   login,
+  demoConfig,
+  demoLogin,
   logout,
   forgotPassword,
   resetPassword,

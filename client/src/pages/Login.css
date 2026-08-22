@@ -1143,3 +1143,122 @@
     animation-duration: 1.2s;
   }
 }
+
+.login-demo {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(49, 86, 211, 0.2);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(49, 86, 211, 0.07), rgba(242, 90, 43, 0.04)),
+    var(--login-surface);
+  box-shadow: 0 12px 30px rgba(11, 23, 57, 0.07);
+}
+
+.login-demo__heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.login-demo__heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.login-demo__heading strong {
+  color: var(--login-ink);
+  font-size: 0.95rem;
+}
+
+.login-demo__eyebrow {
+  color: var(--login-violet-deep);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-demo__live {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--color-brand-teal);
+  background: var(--color-success-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.login-demo__description {
+  margin: 0;
+  color: var(--login-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.login-demo__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.login-demo__button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 9px;
+  border: 1px solid var(--login-line);
+  border-radius: 12px;
+  color: var(--login-ink);
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.login-demo__button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(49, 86, 211, 0.48);
+  box-shadow: 0 8px 18px rgba(49, 86, 211, 0.1);
+}
+
+.login-demo__button:focus-visible {
+  outline: 3px solid rgba(49, 86, 211, 0.22);
+  outline-offset: 2px;
+}
+
+.login-demo__button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.login-demo__button span {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.login-demo__button small {
+  color: var(--login-muted);
+  font-size: 0.68rem;
+}
+
+@media (max-width: 640px) {
+  .login-demo__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .login-demo__button {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+}
