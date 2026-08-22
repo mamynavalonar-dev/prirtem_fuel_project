@@ -227,3 +227,4 @@ skills-lock.json
 # Native/local secrets
 server/.env.native
 client/.env
+.vercel/
