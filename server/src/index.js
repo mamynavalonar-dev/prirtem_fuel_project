@@ -18,7 +18,12 @@ if (process.env.JWT_SECRET.length < 32) {
   process.exit(1);
 }
 if (process.env.NODE_ENV === "production") {
-  for (const varName of ["CLIENT_URL", "APP_CLIENT_URL", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"]) {
+  const requiredProductionVars = ["CLIENT_URL", "APP_CLIENT_URL"];
+  if (process.env.DEMO_MODE !== "true") {
+    requiredProductionVars.push("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS");
+  }
+
+  for (const varName of requiredProductionVars) {
     if (!process.env[varName]) {
       console.error(`FATAL ERROR: ${varName} is required in production`);
       process.exit(1);
@@ -38,6 +43,7 @@ const { runMigrations } = require("./sql/migrate");
 const { pool } = require("./db");
 const { apiLimiter } = require("./middleware/rateLimit");
 const { ensureCsrfCookie, verifyCsrf } = require("./middleware/csrf");
+const { getImportLimits } = require("./utils/importLimits");
 
 // ✅ pour l’alias /api/vehicles
 const { authRequired } = require("./middleware/auth");
@@ -143,7 +149,7 @@ app.use((err, req, res, next) => {
   if (err.code === "LIMIT_FILE_SIZE") {
     return res.status(400).json({
       error: "FILE_TOO_LARGE",
-      message: "Fichier trop volumineux (max 10MB)",
+      message: `Fichier trop volumineux (max ${getImportLimits().maxFileSizeMb}MB)`,
     });
   }
 
@@ -213,10 +219,14 @@ async function start() {
   process.on("SIGUSR2", () => shutdown(0));
 }
 
-start().catch((e) => {
-  console.error("❌ Startup failed:", e);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((e) => {
+    console.error("❌ Startup failed:", e);
+    process.exit(1);
+  });
+}
+
+module.exports = app;
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);

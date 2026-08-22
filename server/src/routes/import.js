@@ -10,6 +10,6 @@ router.use(requireRole('ADMIN', 'LOGISTIQUE'));
 router.post('/batch', asyncHandler(ctrl.createBatch));
 router.get('/batches', asyncHandler(ctrl.listBatches));
 router.get('/batches/:batch_id/files', asyncHandler(ctrl.listFiles));
-router.post('/upload', ctrl.upload.array('files', 10), asyncHandler(ctrl.uploadAndImport));
+router.post('/upload', ctrl.uploadFiles, asyncHandler(ctrl.uploadAndImport));
 
 module.exports = router;

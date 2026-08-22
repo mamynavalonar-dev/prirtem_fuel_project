@@ -10,6 +10,7 @@
     "db:migrate": "node src/sql/migrate.js",
     "db:reset": "node src/sql/reset.js",
     "db:seed": "node src/sql/seed.js",
+    "db:seed:demo": "node src/sql/seedDemo.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "check": "npm test && npm audit --omit=dev"
   },
