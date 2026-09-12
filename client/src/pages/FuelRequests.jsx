@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { apiFetch } from '../utils/api.js';
 import Modal from '../components/Modal.jsx';
+import RequestPagination from '../components/RequestPagination.jsx';
+import useFuelRequests from '../hooks/useFuelRequests.js';
 import './FuelRequests.css';
 
 function ymdToday() {
@@ -130,10 +132,7 @@ export default function FuelRequests() {
   const role = user?.role || '';
   const canCreate = role === 'DEMANDEUR';
 
-  const [requests, setRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const [q, setQ] = useState('');
+  const { rows: requests, loading, error, query: q, setQuery: setQ, pagination, setPage, reload: load } = useFuelRequests({ token });
 
   // Create modal
   const [createOpen, setCreateOpen] = useState(false);
@@ -151,47 +150,11 @@ export default function FuelRequests() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsReq, setDetailsReq] = useState(null);
 
-  async function load() {
-    if (!token) return;
-    setLoading(true);
-    try {
-      const data = await apiFetch('/api/requests/fuel', { token });
-      setRequests(Array.isArray(data?.requests) ? data.requests : []);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
-
-  const filtered = useMemo(() => {
-    const qq = String(q || '').trim().toLowerCase();
-    if (!qq) return requests;
-
-    return requests.filter((r) => {
-      const hay = [
-        r.request_no,
-        r.request_type,
-        r.objet,
-        r.status,
-        r.requester_username,
-        r.request_date,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-
-      return hay.includes(qq);
-    });
-  }, [requests, q]);
-
   function openCreate() {
     setForm({
       request_type: 'SERVICE',
       request_date: ymdToday(),
+      end_date: ymdToday(),
       objet: '',
       amount_estimated_ar: '',
       amount_estimated_words: '',
@@ -223,7 +186,6 @@ export default function FuelRequests() {
 
     setBusy(true);
     try {
-      // backend demande end_date >= request_date → on envoie pareil (mais on n’affiche PAS "Période")
       const payload = {
         request_type: form.request_type,
         objet: form.objet.trim(),
@@ -240,7 +202,7 @@ export default function FuelRequests() {
       });
 
       setCreateOpen(false);
-      await load();
+      load({ firstPage: true });
     } catch (err) {
       alert(err?.message || 'Erreur création');
     } finally {
@@ -277,6 +239,8 @@ export default function FuelRequests() {
         <div className="fuelFilters">
           <div className="fuelSearch">
             <input
+              type="search"
+              aria-label="Rechercher les demandes de carburant"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Rechercher (N°, objet, type...)"
@@ -292,7 +256,8 @@ export default function FuelRequests() {
           )}
         </div>
 
-        <div className="fuelTableWrap">
+        {error && <div className="alert" role="alert">{error} <button type="button" className="fuelPrimaryBtn" onClick={() => load()}>Réessayer</button></div>}
+        <div className="fuelTableWrap" role="region" aria-label="Demandes de carburant" tabIndex={0}>
           <table className="fuelTable">
             <thead>
               <tr>
@@ -302,7 +267,7 @@ export default function FuelRequests() {
                 <th>Objet</th>
                 <th style={{ textAlign: 'right' }}>Montant (Ar)</th>
                 <th>Statut</th>
-                <th style={{ width: 110, textAlign: 'center' }}>Actions</th>
+                <th style={{ width: 132, textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
 
@@ -311,12 +276,14 @@ export default function FuelRequests() {
                 <tr>
                   <td colSpan={7} className="fuelEmpty">Chargement…</td>
                 </tr>
-              ) : filtered.length === 0 ? (
+              ) : error ? (
+                <tr><td colSpan={7} className="fuelEmpty">Les demandes n’ont pas pu être chargées.</td></tr>
+              ) : requests.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="fuelEmpty">Aucune demande</td>
                 </tr>
               ) : (
-                filtered.map((r) => (
+                requests.map((r) => (
                   <tr key={r.id}>
                     <td className="cellStrong">{r.request_no}</td>
                     <td>{fmtDateFr(r.request_date)}</td>
@@ -359,6 +326,7 @@ export default function FuelRequests() {
             </tbody>
           </table>
         </div>
+        <RequestPagination pagination={pagination} loading={loading} error={error} onPageChange={setPage} />
       </div>
 
       {/* ✅ MODAL CREATION (plus de formulaire en permanence) */}
@@ -367,8 +335,9 @@ export default function FuelRequests() {
           <form onSubmit={submitCreate}>
             <div className="fuelCreateGrid">
               <div className="field">
-                <label>Date ticket</label>
+                <label htmlFor="fuel-request-date">Date ticket</label>
                 <input
+                  id="fuel-request-date"
                   type="date"
                   value={form.request_date}
                   onChange={(e) => setForm((f) => ({ ...f, request_date: e.target.value }))}
@@ -377,8 +346,9 @@ export default function FuelRequests() {
               </div>
 
               <div className="field">
-                <label>Date fin</label>
+                <label htmlFor="fuel-end-date">Date fin</label>
                 <input
+                  id="fuel-end-date"
                   type="date"
                   value={form.end_date}
                   onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
@@ -386,8 +356,9 @@ export default function FuelRequests() {
               </div>
 
               <div className="field">
-                <label>Type</label>
+                <label htmlFor="fuel-request-type">Type</label>
                 <select
+                  id="fuel-request-type"
                   value={form.request_type}
                   onChange={(e) => setForm((f) => ({ ...f, request_type: e.target.value }))}
                 >
@@ -397,8 +368,9 @@ export default function FuelRequests() {
               </div>
 
               <div className="field">
-                <label>Montant prévisionnel (Ar)</label>
+                <label htmlFor="fuel-amount">Montant prévisionnel (Ar)</label>
                 <input
+                  id="fuel-amount"
                   value={form.amount_estimated_ar}
                   onChange={(e) => onChangeAmount(e.target.value)}
                   inputMode="numeric"
@@ -407,8 +379,9 @@ export default function FuelRequests() {
               </div>
 
               <div className="field fieldFull">
-                <label>Objet</label>
+                <label htmlFor="fuel-objet">Objet</label>
                 <input
+                  id="fuel-objet"
                   value={form.objet}
                   onChange={(e) => setForm((f) => ({ ...f, objet: e.target.value }))}
                   placeholder="ex: Demande de carburant …"
@@ -416,8 +389,8 @@ export default function FuelRequests() {
               </div>
 
               <div className="field fieldWords">
-                <label>Montant (en lettre)</label>
-                <input value={form.amount_estimated_words} readOnly placeholder="(auto)" />
+                <label htmlFor="fuel-amount-words">Montant (en lettre)</label>
+                <input id="fuel-amount-words" value={form.amount_estimated_words} readOnly placeholder="(auto)" />
               </div>
             </div>
 

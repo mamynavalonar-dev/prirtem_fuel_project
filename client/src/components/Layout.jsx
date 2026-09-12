@@ -93,7 +93,7 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 1024px)').matches);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
@@ -159,22 +159,18 @@ export default function Layout({ children }) {
   }, [now]);
 
   useEffect(() => {
+    const media = window.matchMedia('(max-width: 1024px)');
     const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      if (!mobile) setMobileOpen(false);
+      setIsMobile(media.matches);
+      if (!media.matches) setMobileOpen(false);
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    media.addEventListener('change', handleResize);
+    return () => media.removeEventListener('change', handleResize);
   }, []);
 
   useEffect(() => {
-    const prev = document.body.style.overflowX;
-    document.body.style.overflowX = "hidden";
-    return () => {
-      document.body.style.overflowX = prev;
-    };
-  }, []);
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   // 📨 logout() est désormais async (appelle POST /api/auth/logout pour
   // effacer le cookie de session côté serveur avant de naviguer).
@@ -199,21 +195,6 @@ export default function Layout({ children }) {
       window.removeEventListener("prirtem:unauthorized", onUnauthorized);
   }, []);
 
-  const mainStyle = useMemo(
-    () => ({
-      marginLeft: isMobile ? 0 : "var(--app-main-offset, 110px)",
-      padding: 16,
-      height: "100vh",
-      boxSizing: "border-box",
-      display: "flex",
-      flexDirection: "column",
-      gap: 16,
-      overflow: "hidden",
-      background: "var(--bg)",
-    }),
-    [isMobile],
-  );
-
   const topbarStyle = useMemo(
     () => ({
       marginBottom: 0,
@@ -224,20 +205,8 @@ export default function Layout({ children }) {
     [],
   );
 
-  const contentContainerStyle = useMemo(
-    () => ({
-      flex: "1 1 auto",
-      minHeight: 0,
-      overflow: "auto",
-      borderRadius: 14,
-      border: "none",
-      padding: 16,
-    }),
-    [],
-  );
-
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
+    <div className="app-shell">
       <AnimatedSidebar
         menu={menu}
         isMobile={isMobile}
@@ -246,7 +215,7 @@ export default function Layout({ children }) {
         onLogout={askLogout}
       />
 
-      <main style={mainStyle}>
+      <main className="app-main" inert={isMobile && mobileOpen ? '' : undefined}>
         <div className="topbar card" style={topbarStyle}>
           <div className="topbarLeft">
             {isMobile && (
@@ -254,6 +223,9 @@ export default function Layout({ children }) {
                 className="iconBtn"
                 onClick={openMobile}
                 aria-label="Ouvrir le menu"
+                aria-controls="app-navigation"
+                aria-expanded={mobileOpen}
+                type="button"
               >
                 <ion-icon
                   name="menu-outline"
@@ -291,7 +263,7 @@ export default function Layout({ children }) {
           </div>
         </div>
 
-        <section className="card" style={contentContainerStyle}>
+        <section className="card app-content" aria-label={currentTitle}>
           <Suspense
             fallback={<div className="muted" role="status">Chargement de la page…</div>}
           >

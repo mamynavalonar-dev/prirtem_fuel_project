@@ -647,7 +647,7 @@ export default function CalendarView() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="calendarMonthNav">
           <button className="btn btn-sm btn-outline" onClick={prevMonth} type="button">
             ◀
           </button>
@@ -789,7 +789,8 @@ export default function CalendarView() {
             </div>
           </div>
         ) : (
-          <div className="card" style={{ padding: 12 }}>
+          <div className="calendarScroll" role="region" aria-label="Calendrier mensuel — défilement horizontal" tabIndex={0}>
+          <div className="card calendarMonth" style={{ padding: 12 }}>
             <div
               style={{
                 display: 'grid',
@@ -915,14 +916,15 @@ export default function CalendarView() {
               })}
             </div>
           </div>
+          </div>
         )}
       </div>
 
       {/* ===== Day modal (your idea) ===== */}
       {dayModalOpen && (
         <Modal title={`Détails du ${selectedDate}`} onClose={() => setDayModalOpen(false)}>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 520px', minWidth: 320 }}>
+          <div className="calendarDayColumns" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 520px', minWidth: 0 }}>
               <div style={{ fontWeight: 900, marginBottom: 10 }}>Demandes du jour</div>
 
               {dayEvents.length === 0 ? (
@@ -934,7 +936,7 @@ export default function CalendarView() {
                     return (
                       <div key={ev.id} className="card" style={{ padding: 12 }}>
                         <div className="rowBetween" style={{ gap: 10, flexWrap: 'wrap' }}>
-                          <div style={{ minWidth: 240 }}>
+                          <div className="calendarDaySummary">
                             <div style={{ fontWeight: 900 }}>{r.request_no || '—'}</div>
                             <div className="muted" style={{ marginTop: 2 }}>
                               {ev.chipText}
@@ -985,7 +987,7 @@ export default function CalendarView() {
             </div>
 
             {mode === 'car' && (
-              <div style={{ flex: '1 1 340px', minWidth: 280 }}>
+              <div style={{ flex: '1 1 340px', minWidth: 0 }}>
                 <div style={{ fontWeight: 900, marginBottom: 10 }}>Véhicules libres ce jour</div>
                 {freeVehicles.length === 0 ? (
                   <div className="muted">Aucun véhicule libre (ou flotte vide).</div>

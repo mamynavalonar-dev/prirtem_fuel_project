@@ -104,6 +104,28 @@ a:hover{ text-decoration: underline; }
   min-height: 100vh;
 }
 .main{ min-width: 0; }
+.app-shell{ min-height: 100vh; background: var(--bg); }
+.app-main{
+  margin-left: var(--app-main-offset, 110px);
+  min-width: 0;
+  padding: 16px;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+.app-content.card{
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: none;
+  scrollbar-gutter: stable;
+}
+.app-content > *, .card, .form{ min-width: 0; }
 .container{
   max-width: 1280px;
   margin: 0 auto;
@@ -230,7 +252,10 @@ a:hover{ text-decoration: underline; }
   display:flex;
   align-items:center;
   gap: 10px;
+  min-width: 0;
 }
+.topbarRight > :is(button, .themeSwitch, .notificationAnchor){ flex-shrink: 0; }
+.topbarLeft > .iconBtn{ flex-shrink: 0; }
 
 .topbar-logout{ display: none; }
 @media (max-width: 900px){
@@ -255,7 +280,7 @@ h3{ font-size: 15px; }
 
 /* ===================== FORMS ===================== */
 .form{ display:flex; flex-direction: column; gap: 10px; }
-.field{ display:flex; flex-direction: column; gap: 6px; min-width: 220px; }
+.field{ display:flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 100%; }
 
 .label{
   font-size: 12px;
@@ -263,12 +288,14 @@ h3{ font-size: 15px; }
   color: var(--text);
 }
 
-.row{ display:flex; gap: 12px; align-items:center; }
-.row2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row{ display:flex; gap: 12px; align-items:center; flex-wrap: wrap; min-width: 0; }
+.row2{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .rowBetween{ display:flex; justify-content: space-between; gap: 12px; align-items:center; flex-wrap: wrap; }
 
 input, select, textarea, .input{
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--input-border);
@@ -348,8 +375,8 @@ html[data-theme="dark"] .btn-danger{ color: rgba(255,255,255,.92); }
 
 /* small icon button */
 .iconBtn{
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border-radius: 12px;
   background: var(--icon-bg);
@@ -361,7 +388,11 @@ html[data-theme="dark"] .btn-danger{ color: rgba(255,255,255,.92); }
 /* ===================== TABLES ===================== */
 .tableWrap{
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -494,12 +525,17 @@ html[data-theme="dark"] .tab{
   padding: 18px;
   z-index: 9999;
   animation: fadeIn .15s ease-out;
+  overscroll-behavior: contain;
 }
 .modal{
   width: 720px;
-  max-width: 95vw;
-  max-height: 85vh;
-  overflow: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
   background: var(--surface);
   border-radius: 16px;
   border: 1px solid var(--border);
@@ -513,9 +549,11 @@ html[data-theme="dark"] .tab{
   gap: 12px;
   padding: 14px 14px 10px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-.modalTitle{ font-size: 14px; font-weight: 900; }
-.modalBody{ padding: 14px; }
+.modalTitle{ font-size: 14px; font-weight: 900; min-width: 0; overflow-wrap: anywhere; }
+.modalHeader > button{ flex-shrink: 0; min-height: 44px; }
+.modalBody{ padding: 14px; min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 
 @keyframes fadeIn{ from{ opacity: 0; } to{ opacity: 1; } }
 @keyframes popIn{ from{ transform: translateY(8px) scale(.98); opacity: 0; } to{ transform: translateY(0) scale(1); opacity: 1; } }
@@ -529,6 +567,7 @@ html[data-theme="dark"] .tab{
   display:flex;
   flex-direction: column;
   gap: 10px;
+  max-width: calc(100vw - 36px);
 }
 .toast{
   background: #0b1220;
@@ -549,7 +588,7 @@ html[data-theme="dark"] .tab{
   flex-shrink: 0;
 }
 .toastTitle{ font-weight: 900; font-size: 13px; margin-bottom: 2px; }
-.toastMsg{ font-size: 12px; color: rgba(255,255,255,.78); }
+.toastMsg{ font-size: 12px; color: rgba(255,255,255,.78); overflow-wrap: anywhere; }
 .toastTime{ font-size: 11px; color: rgba(255,255,255,.55); margin-top: 6px; }
 @keyframes toastIn{ from{ transform: translateY(-6px); opacity: 0; } to{ transform: translateY(0); opacity: 1; } }
 
@@ -612,7 +651,7 @@ html[data-theme="dark"] .tab{
 
 /* ===================== HELPERS ===================== */
 hr{ border: none; border-top: 1px solid rgba(15,23,42,.10); margin: 16px 0; }
-.grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid2{ display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 900px){
   .grid2{ grid-template-columns: 1fr; }
 }
@@ -901,4 +940,71 @@ html[data-theme="dark"] select option:hover,
 html[data-theme="dark"] select option:focus{
   background: #2563eb;               /* bleu accent */
   color: #ffffff;                    /* IMPORTANT: texte blanc lisible */
+}
+
+/* Shared responsive layout: drawer through tablet widths, contained tables. */
+.topbarUser{ min-width: 0; max-width: 180px; }
+.topbarUserName{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(button, a, [tabindex]):focus-visible{ outline: 3px solid var(--accent); outline-offset: 3px; }
+.themeSwitch input:focus-visible + .slider{ outline: 3px solid var(--accent); outline-offset: 4px; }
+input:is([type="checkbox"], [type="radio"]){ width: auto; flex-shrink: 0; }
+.notificationAnchor{ position: relative; }
+.notificationPanel{
+  position: absolute;
+  right: 0;
+  top: 52px;
+  width: 380px;
+  max-width: calc(100vw - 100px);
+  max-height: min(560px, 70dvh);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+}
+.notificationBody{ min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.calendarMonthNav{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.calendarScroll{ min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+.calendarMonth{ min-width: 770px; }
+.calendarDayColumns > *{ min-width: 0; max-width: 100%; }
+.calendarDaySummary{ min-width: 0; overflow-wrap: anywhere; }
+.modalBody :is(.grid2, .row2) > *{ min-width: 0; }
+
+@media (max-width: 1024px){
+  .app-main{ margin-left: 0; padding: 12px; gap: 12px; }
+  .topbarClockDate{ display: none; }
+  .app-content.card{ padding: 14px; }
+  .modalBody .row > .field{ flex: 1 1 220px; }
+}
+@media (max-width: 640px){
+  .app-main{ padding: 8px; gap: 8px; }
+  .app-content.card{ padding: 10px; }
+  .app-content .card{ padding: 12px; }
+  .topbar.card{ flex-wrap: wrap; padding: 10px 12px; gap: 8px; }
+  .topbarLeft{ flex: 1 1 100%; }
+  .topbarTitle{ white-space: normal; line-height: 1.25; }
+  .topbarRight{ width: 100%; gap: 8px; justify-content: flex-end; }
+  .topbarUser{ margin-right: auto; text-align: left; max-width: calc(100% - 174px); }
+  .topbarClock{ display: none; }
+  .notificationAnchor{ position: static; }
+  .notificationPanel{ top: calc(100% + 8px); right: 0; max-width: 100%; max-height: 60dvh; }
+  .themeSwitch{ min-height: 44px; }
+  .row2, .grid2{ grid-template-columns: minmax(0, 1fr); }
+  .app-content .field, .modalBody .field{
+    min-width: 0 !important;
+    max-width: 100%;
+    width: 100%;
+  }
+  .app-content .row > .field, .modalBody .row > .field{ flex-basis: 100% !important; }
+  .app-content :is(input, select, textarea), .modalBody :is(input, select, textarea){ font-size: 16px; }
+  :is(.app-content, .modalBody) :is(.btn, .iconBtn, .fuel-icon-btn, .fuel-search-clear, .usersIconBtn, .kebabBtn){ min-height: 44px; }
+  :is(.fuel-icon-btn, .fuel-search-clear, .usersIconBtn, .kebabBtn){ min-width: 44px; }
+  .modalOverlay{ padding: 8px; }
+  .modal{ max-height: calc(100dvh - 16px); }
+  .modalBody{ padding: 12px; }
+  .toastHost{ right: 8px; max-width: calc(100vw - 16px); }
+  .toast{ min-width: 0; }
 }

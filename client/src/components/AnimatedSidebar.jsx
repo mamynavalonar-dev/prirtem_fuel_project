@@ -35,6 +35,7 @@ export default React.memo(function AnimatedSidebar({
 }) {
   const location = useLocation();
   const listRef = useRef(null);
+  const sidebarRef = useRef(null);
 
   const isControlled = typeof controlledExpanded === 'boolean' && typeof controlledToggle === 'function';
 
@@ -97,6 +98,39 @@ export default React.memo(function AnimatedSidebar({
     startSidebarAnimHint();
   }, [isMobile, isMobileOpen, startSidebarAnimHint]);
 
+  useEffect(() => {
+    if (!isMobile || !isMobileOpen) return;
+    const sidebar = sidebarRef.current;
+    const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    sidebar.querySelector('button')?.focus();
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMobile?.();
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...sidebar.querySelectorAll('a[href], button:not(:disabled)')];
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !sidebar.contains(document.activeElement))) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      if (opener?.isConnected) opener.focus();
+    };
+  }, [isMobile, isMobileOpen, closeMobile]);
+
   const onNavClick = useCallback(() => {
     if (isMobile) closeMobile?.();
   }, [isMobile, closeMobile]);
@@ -117,7 +151,7 @@ export default React.memo(function AnimatedSidebar({
 
   const sidebarClass = useMemo(() => {
     const base = ['asb-sidebar'];
-    if (isExpanded) base.push('active');
+    if (isExpanded || isMobile) base.push('active');
     if (isMobile && isMobileOpen) base.push('mobile-open');
     return base.join(' ');
   }, [isExpanded, isMobile, isMobileOpen]);
@@ -129,14 +163,22 @@ export default React.memo(function AnimatedSidebar({
       )}
 
       <aside
+        id="app-navigation"
+        ref={sidebarRef}
         className={sidebarClass}
-        style={{
-          // ✅ IMPORTANT: PAS de "paint" sinon le toggle est coupé
-          contain: 'layout',
-          willChange: isMobile ? 'transform' : 'width',
-          transform: 'translateZ(0)'
-        }}
+        role={isMobile ? 'dialog' : undefined}
+        aria-label="Navigation principale"
+        aria-modal={isMobile && isMobileOpen ? true : undefined}
+        aria-hidden={isMobile && !isMobileOpen ? true : undefined}
+        inert={isMobile && !isMobileOpen ? '' : undefined}
       >
+        {isMobile && (
+          <button className="asb-close" type="button" onClick={closeMobile} aria-label="Fermer le menu">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg>
+          </button>
+        )}
           <div className="asb-logo">
             <div className="asb-logo-icon">
               <img className="asb-logo-img" src={LOGO_PRIRTEM} alt="PRIRTEM" />
@@ -146,14 +188,14 @@ export default React.memo(function AnimatedSidebar({
 
 
         {!isMobile && (
-          <button className="asb-toggle" onClick={toggle} type="button" aria-label="Réduire ou étendre la navigation">
+          <button className="asb-toggle" onClick={toggle} type="button" aria-label="Réduire ou étendre la navigation" aria-expanded={isExpanded}>
             <svg className="asb-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="m9 5 7 7-7 7" />
             </svg>
           </button>
         )}
 
-        <ul className="asb-menu-list" ref={listRef}>
+        <nav className="asb-menu-list" ref={listRef} aria-label="Pages de l'application">
           <div
             className="asb-indicator"
             style={{
@@ -169,6 +211,8 @@ export default React.memo(function AnimatedSidebar({
               <NavLink
                 key={m.to}
                 to={m.to}
+                aria-label={m.label}
+                title={!isExpanded && !isMobile ? m.label : undefined}
                 end={m.to === '/app'}
                 className={({ isActive }) => `asb-item ${isActive ? 'active' : ''}`}
                 onClick={onNavClick}
@@ -185,7 +229,7 @@ export default React.memo(function AnimatedSidebar({
               </NavLink>
             );
           })}
-        </ul>
+        </nav>
 
         
         {/* Footer / Logout */}

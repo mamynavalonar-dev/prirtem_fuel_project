@@ -228,3 +228,5 @@ skills-lock.json
 server/.env.native
 client/.env
 .vercel/
+client/test-results/
+client/playwright-report/

@@ -9,6 +9,9 @@ const apiProxy = {
 };
 
 export default defineConfig({
+  test: {
+    include: ['src/**/*.test.{js,jsx}'],
+  },
   plugins: [react()],
   server: {
     port: 5173,

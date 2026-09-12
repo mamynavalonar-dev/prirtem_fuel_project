@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export default function Modal({ title, children, onClose, width = 720 }) {
   const closeBtnRef = useRef(null);
@@ -14,8 +15,14 @@ export default function Modal({ title, children, onClose, width = 720 }) {
   // ESC handler (mounted once)
   useEffect(() => {
     const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKeyDown = (e) => {
+      // Only the topmost dialog handles keys when details open over a dialog.
+      const dialogs = document.querySelectorAll('.modal');
+      if (dialogs[dialogs.length - 1] !== modalRef.current) return;
       if (e.key === 'Escape') {
+        e.preventDefault();
         onCloseRef.current?.();
         return;
       }
@@ -27,10 +34,10 @@ export default function Modal({ title, children, onClose, width = 720 }) {
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      if (e.shiftKey && (document.activeElement === first || !modalRef.current.contains(document.activeElement))) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && (document.activeElement === last || !modalRef.current.contains(document.activeElement))) {
         e.preventDefault();
         first.focus();
       }
@@ -38,7 +45,8 @@ export default function Modal({ title, children, onClose, width = 720 }) {
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
-      previouslyFocused?.focus?.();
+      document.body.style.overflow = previousOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus?.();
     };
   }, []);
 
@@ -51,7 +59,7 @@ export default function Modal({ title, children, onClose, width = 720 }) {
     (target || closeBtnRef.current)?.focus?.();
   }, []);
 
-  return (
+  return createPortal(
     <div className="modalOverlay" onMouseDown={() => onCloseRef.current?.()} role="presentation">
       <div
         ref={modalRef}
@@ -68,6 +76,7 @@ export default function Modal({ title, children, onClose, width = 720 }) {
           <button
             ref={closeBtnRef}
             className="btn btn-outline btn-sm"
+            type="button"
             onClick={() => onCloseRef.current?.()}
             aria-label="Fermer"
           >
@@ -76,6 +85,7 @@ export default function Modal({ title, children, onClose, width = 720 }) {
         </div>
         <div className="modalBody">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
