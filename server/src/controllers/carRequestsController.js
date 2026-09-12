@@ -261,7 +261,7 @@ async function logisticsApprove(req, res) {
     sql: `UPDATE car_requests
           SET status='LOGISTICS_APPROVED', logistics_at=now(), logistics_by=$2,
               vehicle_id=$3, driver_id=$4, updated_at=now()
-          WHERE id=$1 AND status='SUBMITTED' AND requester_id<>$2
+          WHERE id=$1 AND deleted_at IS NULL AND status='SUBMITTED' AND requester_id<>$2
             AND EXISTS (SELECT 1 FROM vehicles v WHERE v.id=$3 AND v.is_active=true AND v.deleted_at IS NULL)
             AND EXISTS (SELECT 1 FROM drivers d WHERE d.id=$4 AND d.is_active=true AND d.deleted_at IS NULL)
           RETURNING *`,
@@ -286,7 +286,7 @@ async function rafApprove(req, res) {
               authorization_date=COALESCE(authorization_date, CURRENT_DATE),
               authorization_time=COALESCE(authorization_time, CURRENT_TIME),
               updated_at=now()
-          WHERE id=$1 AND status='LOGISTICS_APPROVED'
+          WHERE id=$1 AND deleted_at IS NULL AND status='LOGISTICS_APPROVED'
             AND requester_id<>$2 AND logistics_by<>$2
           RETURNING *`,
     params: [id, req.user.id],
@@ -312,7 +312,7 @@ async function reject(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE car_requests
           SET status='REJECTED', rejected_at=now(), rejected_by=$2, reject_reason=$3, updated_at=now()
-          WHERE id=$1 AND status = ANY($4::car_request_status[]) AND requester_id<>$2
+          WHERE id=$1 AND deleted_at IS NULL AND status = ANY($4::car_request_status[]) AND requester_id<>$2
           RETURNING *`,
     params: [id, req.user.id, reason, allowedStatuses],
     actorId: req.user.id,

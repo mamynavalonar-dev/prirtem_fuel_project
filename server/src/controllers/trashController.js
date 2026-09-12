@@ -216,13 +216,39 @@ const ENTITIES = {
 };
 
 
-async function runTrashMutation({ sql, params = [], actorId, action, meta, requireMatch = false }) {
+async function runTrashMutation({ sql, params = [], actorId, action, meta, requireMatch = false, protectVehicleHistory = false }) {
   const client = await pool.connect();
   let transactionOpen = false;
   try {
     await client.query('BEGIN');
     transactionOpen = true;
-    const result = await client.query(sql, params);
+    let mutationSql = sql;
+    let mutationParams = params;
+    if (protectVehicleHistory && meta.entity === 'vehicles') {
+      // Lock parents before checking children. This also prevents a concurrent
+      // fuel-log insert from racing the check on a legacy CASCADE database.
+      const selectedIds = meta.id ? [meta.id] : meta.ids;
+      const selected = await client.query(
+        `SELECT id FROM vehicles WHERE deleted_at IS NOT NULL
+         ${selectedIds ? 'AND id = ANY($1::uuid[])' : ''} ORDER BY id FOR UPDATE`,
+        selectedIds ? [selectedIds] : []
+      );
+      const lockedIds = selected.rows.map((row) => row.id);
+      mutationSql = 'DELETE FROM vehicles WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL RETURNING id';
+      mutationParams = [lockedIds];
+      if (selected.rows.length) {
+        const dependencies = await client.query(
+          'SELECT 1 FROM vehicle_fuel_logs WHERE vehicle_id = ANY($1::uuid[]) LIMIT 1',
+          [lockedIds]
+        );
+        if (dependencies.rows.length) {
+          const error = new Error('Vehicle fuel history must be retained');
+          error.code = 'DEPENDENT_RECORDS';
+          throw error;
+        }
+      }
+    }
+    const result = await client.query(mutationSql, mutationParams);
     if (requireMatch && !result.rowCount) {
       await client.query('ROLLBACK');
       transactionOpen = false;
@@ -244,6 +270,19 @@ async function runTrashMutation({ sql, params = [], actorId, action, meta, requi
     throw error;
   } finally {
     client.release();
+  }
+}
+
+async function runTrashPurge(res, options) {
+  try {
+    return await runTrashMutation({ ...options, protectVehicleHistory: true });
+  } catch (error) {
+    if (!['23503', '23001', 'DEPENDENT_RECORDS'].includes(error.code)) throw error;
+    res.status(409).json({
+      error: 'DEPENDENT_RECORDS',
+      message: 'Suppression impossible : des enregistrements liés doivent être conservés. Aucune suppression effectuée.'
+    });
+    return undefined;
   }
 }
 
@@ -389,7 +428,7 @@ exports.hardDelete = asyncHandler(async (req, res) => {
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const result = await runTrashMutation({
+  const result = await runTrashPurge(res, {
     sql: `DELETE FROM ${ent.table} WHERE id=$1 AND deleted_at IS NOT NULL RETURNING id`,
     params: [id],
     actorId: req.user.id,
@@ -397,6 +436,7 @@ exports.hardDelete = asyncHandler(async (req, res) => {
     meta: { entity, id },
     requireMatch: true
   });
+  if (result === undefined) return;
   if (!result) return res.status(404).json({ error: 'Introuvable' });
   return res.json({ ok: true });
 });
@@ -429,13 +469,14 @@ exports.hardDeleteMany = asyncHandler(async (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   if (!ids.length) return res.json({ ok: true, deleted: 0 });
 
-  const result = await runTrashMutation({
+  const result = await runTrashPurge(res, {
     sql: `DELETE FROM ${ent.table} WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL RETURNING id`,
     params: [ids],
     actorId: req.user.id,
     action: 'TRASH_HARD_DELETE_MANY',
     meta: { entity, ids }
   });
+  if (result === undefined) return;
   return res.json({ ok: true, deleted: result.rowCount });
 });
 
@@ -462,11 +503,12 @@ exports.purgeAll = asyncHandler(async (req, res) => {
   const ent = ENTITIES[entity];
   if (!ent) return res.status(404).json({ error: 'Type inconnu' });
 
-  const result = await runTrashMutation({
+  const result = await runTrashPurge(res, {
     sql: `DELETE FROM ${ent.table} WHERE deleted_at IS NOT NULL RETURNING id`,
     actorId: req.user.id,
     action: 'TRASH_PURGE_ALL',
     meta: { entity }
   });
+  if (result === undefined) return;
   return res.json({ ok: true, deleted: result.rowCount });
 });

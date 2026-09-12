@@ -4,8 +4,9 @@ const { pool, createPool } = require('../db');
 const initial = require('./migrations/001_initial');
 const legacyAlignment = require('./migrations/002_legacy_alignment');
 const integrity = require('./migrations/003_integrity');
+const securityAndHistory = require('./migrations/004_security_and_history');
 
-const migrations = [initial, legacyAlignment, integrity];
+const migrations = [initial, legacyAlignment, integrity, securityAndHistory];
 const MIGRATION_LOCK_ID = 1732050807;
 
 async function relationExists(client, relationName) {

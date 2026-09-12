@@ -338,7 +338,8 @@ export default function ImportExcel() {
             {result && (
               <div style={{ marginTop: 12 }}>
                 <div className="muted">Batch: <b>{result.batch_id}</b></div>
-                <table className="table ix-table" style={{ marginTop: 8 }}>
+                <div className="tableWrap" style={{ marginTop: 8 }} role="region" aria-label="Résultat de l'import" tabIndex={0}>
+                <table className="table ix-table">
                   <thead>
                     <tr>
                       <th>Fichier</th><th>Type</th><th>Insérés</th><th>Erreur</th>
@@ -355,6 +356,7 @@ export default function ImportExcel() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </>
@@ -402,7 +404,7 @@ export default function ImportExcel() {
               ))}
             </div>
 
-            <div className="ix-history">
+            <div className="ix-history tableWrap" style={{ marginTop: 12 }} role="region" aria-label="Historique des imports" tabIndex={0}>
               <table className="table ix-table" style={{ marginTop: 12 }}>
                 <thead>
                   <tr>
@@ -467,7 +469,8 @@ export default function ImportExcel() {
                   </div>
                 </div>
 
-                <table className="table ix-table" style={{ marginTop: 10 }}>
+                <div className="tableWrap" style={{ marginTop: 10 }} role="region" aria-label="Fichiers de l'import" tabIndex={0}>
+                <table className="table ix-table">
                   <thead>
                     <tr>
                       <th>Nom</th><th>Type</th><th>Status</th><th>Insérés</th><th>Traité le</th><th>Erreur</th>
@@ -502,6 +505,7 @@ export default function ImportExcel() {
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </>

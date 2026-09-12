@@ -65,6 +65,7 @@ const app = express();
 
 app.disable("x-powered-by");
 if (process.env.TRUST_PROXY) app.set("trust proxy", Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+else if (process.env.VERCEL === '1') app.set('trust proxy', 1);
 
 const allowedOrigins = String(process.env.CLIENT_URL || '')
   .split(',')

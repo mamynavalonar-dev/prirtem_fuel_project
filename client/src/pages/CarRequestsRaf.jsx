@@ -155,21 +155,21 @@ export default function CarRequestsRaf() {
           {view.loading ? (
             <div className="muted">Chargement...</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="row2">
               <div><b>N°</b><div>{view.data?.request_no}</div></div>
               <div><b>Statut</b><div>{statusLabel(view.data?.status)}</div></div>
 
               <div><b>Demandeur</b><div>{view.data?.requester_username || '-'}</div></div>
               <div><b>Date</b><div>{String(view.data?.proposed_date || '').slice(0, 10)}</div></div>
 
-              <div style={{ gridColumn: 'span 2' }}><b>Objet</b><div style={{ whiteSpace: 'pre-wrap' }}>{view.data?.objet}</div></div>
-              <div style={{ gridColumn: 'span 2' }}><b>Itinéraire</b><div style={{ whiteSpace: 'pre-wrap' }}>{view.data?.itinerary || '-'}</div></div>
+              <div style={{ gridColumn: '1 / -1' }}><b>Objet</b><div style={{ whiteSpace: 'pre-wrap' }}>{view.data?.objet}</div></div>
+              <div style={{ gridColumn: '1 / -1' }}><b>Itinéraire</b><div style={{ whiteSpace: 'pre-wrap' }}>{view.data?.itinerary || '-'}</div></div>
 
               <div><b>Véhicule</b><div>{view.data?.vehicle_plate || '-'}</div></div>
               <div><b>Chauffeur</b><div>{view.data?.driver_name || '-'}</div></div>
 
               {view.data?.reject_reason ? (
-                <div style={{ gridColumn: 'span 2' }}>
+                <div style={{ gridColumn: '1 / -1' }}>
                   <b>Motif de rejet</b>
                   <div style={{ whiteSpace: 'pre-wrap' }}>{view.data.reject_reason}</div>
                 </div>
@@ -177,7 +177,7 @@ export default function CarRequestsRaf() {
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+          <div className="row" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
             <button className="btn btn-outline" onClick={closeView}>Fermer</button>
             {view.data?.id && (
               <>

@@ -31,19 +31,20 @@ function ymdGte(a, b) {
 
 /**
  * List fuel requests with filtering and pagination.
- * Supports: ?status=SUBMITTED,VERIFIED&page=1&limit=20
+ * Supports: ?status=SUBMITTED,VERIFIED&page=1&limit=20&q=mission
  */
 async function list(req, res) {
   const role = req.user.role;
   const userId = req.user.id;
   const pagination = z.object({
     page: z.coerce.number().int().min(1).max(100000).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(50)
-  }).safeParse({ page: req.query.page ?? 1, limit: req.query.limit ?? 50 });
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    q: z.string().trim().max(200).default('')
+  }).safeParse({ page: req.query.page ?? 1, limit: req.query.limit ?? 50, q: req.query.q ?? '' });
   if (!pagination.success) {
     return res.status(400).json({ error: 'VALIDATION', details: pagination.error.flatten() });
   }
-  const { page, limit } = pagination.data;
+  const { page, limit, q } = pagination.data;
   const offset = (page - 1) * limit;
 
   // Optional: ?status=SUBMITTED or ?status=SUBMITTED,VERIFIED
@@ -52,7 +53,25 @@ async function list(req, res) {
     ? statusParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
     : [];
 
-  let sql = `SELECT fr.*,
+  const params = [];
+  const filters = ['fr.deleted_at IS NULL'];
+  if (role === 'DEMANDEUR') {
+    params.push(userId);
+    filters.push(`fr.requester_id=$${params.length}`);
+  }
+  if (statuses.length) {
+    params.push(statuses);
+    filters.push(`fr.status = ANY($${params.length})`);
+  }
+  if (q) {
+    // Search literal text across every page, without treating % or _ as wildcards.
+    params.push(`%${q.replace(/[\\%_]/g, '\\$&')}%`);
+    const searchParam = `$${params.length}`;
+    filters.push(`(${['fr.request_no', 'fr.objet', 'fr.request_type', 'fr.status::text', 'u.username']
+      .map((column) => `${column} ILIKE ${searchParam}`).join(' OR ')})`);
+  }
+  const where = `WHERE ${filters.join(' AND ')}`;
+  const sql = `SELECT fr.*,
                     u.username AS requester_username,
                     u2.username AS verifier_username,
                     u3.username AS approver_username,
@@ -62,38 +81,18 @@ async function list(req, res) {
              LEFT JOIN users u2 ON u2.id=fr.verified_by
              LEFT JOIN users u3 ON u3.id=fr.approved_by
              LEFT JOIN users u4 ON u4.id=fr.rejected_by
-             WHERE fr.deleted_at IS NULL`;
-  const params = [];
+             ${where}
+             ORDER BY fr.created_at DESC, fr.id DESC
+             LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
 
-  if (role === 'DEMANDEUR') {
-    params.push(userId);
-    sql += ` AND fr.requester_id=$${params.length}`;
-  }
-
-  if (statuses.length) {
-    params.push(statuses);
-    sql += ` AND fr.status = ANY($${params.length})`;
-  }
-
-  sql += ` ORDER BY fr.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-	  params.push(limit, offset);
-
-  const result = await pool.query(sql, params);
+  const result = await pool.query(sql, [...params, limit, offset]);
   const requestRows = Array.isArray(result?.rows) ? result.rows : [];
 
   // Get total count for pagination
-  let countSql = `SELECT COUNT(*) FROM fuel_requests fr WHERE fr.deleted_at IS NULL`;
-  const countParams = [];
-  if (role === 'DEMANDEUR') {
-    countSql += ` AND fr.requester_id=$1`;
-    countParams.push(userId);
-  }
-  if (statuses.length) {
-    const idx = countParams.length + 1;
-    countSql += ` AND fr.status = ANY($${idx})`;
-    countParams.push(statuses);
-  }
-  const countResult = await pool.query(countSql, countParams);
+  const countResult = await pool.query(
+    `SELECT COUNT(*) FROM fuel_requests fr JOIN users u ON u.id=fr.requester_id ${where}`,
+    params
+  );
   const count = Number(countResult?.rows?.[0]?.count || 0);
 
   res.json({
@@ -232,7 +231,7 @@ async function submit(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE fuel_requests
           SET status='SUBMITTED', submitted_at=now(), updated_at=now()
-          WHERE id=$1 AND requester_id=$2 AND status IN ('DRAFT','REJECTED')
+          WHERE id=$1 AND deleted_at IS NULL AND requester_id=$2 AND status IN ('DRAFT','REJECTED')
           RETURNING *`,
     params: [id, req.user.id],
     actorId: req.user.id,
@@ -255,7 +254,7 @@ async function verify(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE fuel_requests
           SET status='VERIFIED', verified_at=now(), verified_by=$2, updated_at=now()
-          WHERE id=$1 AND status='SUBMITTED' AND requester_id<>$2
+          WHERE id=$1 AND deleted_at IS NULL AND status='SUBMITTED' AND requester_id<>$2
           RETURNING *`,
     params: [id, req.user.id],
     actorId: req.user.id,
@@ -278,7 +277,7 @@ async function approve(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE fuel_requests
           SET status='APPROVED', approved_at=now(), approved_by=$2, updated_at=now()
-          WHERE id=$1 AND status='VERIFIED' AND requester_id<>$2 AND verified_by<>$2
+          WHERE id=$1 AND deleted_at IS NULL AND status='VERIFIED' AND requester_id<>$2 AND verified_by<>$2
           RETURNING *`,
     params: [id, req.user.id],
     actorId: req.user.id,
@@ -312,7 +311,7 @@ async function reject(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE fuel_requests
           SET status='REJECTED', rejected_at=now(), rejected_by=$2, reject_reason=$3, updated_at=now()
-          WHERE id=$1 AND status = ANY($4::fuel_request_status[]) AND requester_id<>$2
+          WHERE id=$1 AND deleted_at IS NULL AND status = ANY($4::fuel_request_status[]) AND requester_id<>$2
           RETURNING *`,
     params: [id, req.user.id, cleanReason, allowedStatuses],
     actorId: req.user.id,
@@ -335,7 +334,7 @@ async function cancel(req, res) {
   const row = await auditedMutation({
     sql: `UPDATE fuel_requests
           SET status='CANCELLED', cancelled_at=now(), cancelled_by=$2, updated_at=now()
-          WHERE id=$1 AND requester_id=$2 AND status IN ('SUBMITTED','VERIFIED')
+          WHERE id=$1 AND deleted_at IS NULL AND requester_id=$2 AND status IN ('SUBMITTED','VERIFIED')
           RETURNING *`,
     params: [id, req.user.id],
     actorId: req.user.id,

@@ -264,7 +264,12 @@ export default function NotificationBell() {
         </div>
       )}
 
-      <div style={{ position: 'relative' }} ref={dropdownRef}>
+      <div className="notificationAnchor" ref={dropdownRef} onKeyDown={(event) => {
+        if (event.key === 'Escape' && open) {
+          setOpen(false);
+          dropdownRef.current?.querySelector('button')?.focus();
+        }
+      }}>
         <button
           type="button"
           className="iconBtn"
@@ -274,6 +279,8 @@ export default function NotificationBell() {
             else setOpen(false);
           }}
           aria-label="Notifications"
+          aria-expanded={open}
+          aria-controls={open ? 'notifications-panel' : undefined}
           style={{ position: 'relative' }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -303,20 +310,10 @@ export default function NotificationBell() {
 
         {open && (
           <div
-            role="menu"
-            style={{
-              position: 'absolute',
-              right: 0,
-              top: 48,
-              width: 380,
-              maxWidth: '92vw',
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 16,
-              boxShadow: 'var(--shadow)',
-              overflow: 'hidden',
-              zIndex: 9999,
-            }}
+            role="region"
+            aria-label="Notifications"
+            id="notifications-panel"
+            className="notificationPanel"
           >
             {/* Header */}
             <div
@@ -352,7 +349,7 @@ export default function NotificationBell() {
             </div>
 
             {/* Body */}
-            <div style={{ maxHeight: 420, overflow: 'auto' }}>
+            <div className="notificationBody">
               {loading && items.length === 0 ? (
                 <div style={{ padding: 14, color: 'var(--muted)' }}>Chargement...</div>
               ) : items.length === 0 ? (

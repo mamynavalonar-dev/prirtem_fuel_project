@@ -162,6 +162,8 @@ html[data-theme="dark"] .usersPage{
   border-radius: 14px;
   margin-bottom: 12px;
   background: var(--u-panel-bg);
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .input-sm{ 
   height: 34px; 
@@ -227,7 +229,7 @@ html[data-theme="dark"] .usersPage{
 
 .permGrid{
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 .permItem{
@@ -258,4 +260,8 @@ html[data-theme="dark"] .usersPage{
   background: var(--u-danger-bg);
   border-radius: 14px;
   padding: 14px;
+}
+@media (max-width: 640px){
+  .permGrid{ grid-template-columns: minmax(0, 1fr); }
+  .usersPage, .usersPage .card{ min-height: 0; }
 }

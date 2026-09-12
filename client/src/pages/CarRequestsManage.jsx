@@ -145,6 +145,7 @@ export default function CarRequestsManage() {
       {error && <div className="alert">{error}</div>}
       {loading ? <div className="muted">Chargement...</div> : null}
 
+      <div className="tableWrap" role="region" aria-label="Demandes voiture à valider" tabIndex={0}>
       <table className="table">
         <thead>
           <tr>
@@ -210,6 +211,7 @@ export default function CarRequestsManage() {
           )}
         </tbody>
       </table>
+      </div>
 
       {viewId && (
         <Modal title="Détails demande voiture" onClose={() => { setViewId(null); setViewData(null); }} width={860}>

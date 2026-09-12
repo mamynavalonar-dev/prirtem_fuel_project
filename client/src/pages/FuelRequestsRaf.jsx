@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import Modal from '../components/Modal.jsx';
+import RequestPagination from '../components/RequestPagination.jsx';
+import useFuelRequests from '../hooks/useFuelRequests.js';
 
 function fmtAr(n) {
   try { return new Intl.NumberFormat('fr-FR').format(Number(n || 0)) + ' Ar'; } catch { return String(n || 0) + ' Ar'; }
@@ -10,25 +12,8 @@ function fmtAr(n) {
 export default function FuelRequestsRaf() {
   const { token, user } = useAuth();
   const role = user?.role;
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { rows, loading, error, pagination, setPage, reload: load } = useFuelRequests({ token, status: 'VERIFIED' });
   const [view, setView] = useState(null);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await apiFetch('/api/requests/fuel?status=VERIFIED', { token });
-      setRows(r.requests || []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
 
   async function openView(id) {
     setView({ loading: true, data: null });
@@ -42,15 +27,23 @@ export default function FuelRequestsRaf() {
   }
 
   async function approve(id) {
-    await apiFetch(`/api/requests/fuel/${id}/approve`, { token, method: 'POST' });
-    await load();
+    try {
+      await apiFetch(`/api/requests/fuel/${id}/approve`, { token, method: 'POST' });
+      load();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
   }
 
   async function reject(id) {
     const reason = prompt('Motif de rejet (obligatoire)') || '';
     if (!reason.trim()) return;
-    await apiFetch(`/api/requests/fuel/${id}/reject`, { token, method: 'POST', body: { reason } });
-    await load();
+    try {
+      await apiFetch(`/api/requests/fuel/${id}/reject`, { token, method: 'POST', body: { reason } });
+      load();
+    } catch (e) {
+      alert(e.message || String(e));
+    }
   }
 
   const can = role === 'RAF';
@@ -58,8 +51,9 @@ export default function FuelRequestsRaf() {
   return (
     <div className="card">
       <h2>Visa RAF carburant</h2>
-      {error && <div className="alert">{error}</div>}
-      {loading ? <div className="muted">Chargement...</div> : (
+      {error && <div className="alert" role="alert">{error} <button type="button" className="btn btn-outline" onClick={() => load()}>Réessayer</button></div>}
+      {loading ? <div className="muted">Chargement...</div> : !error && (
+        <div className="tableWrap" role="region" aria-label="Demandes de carburant à approuver" tabIndex={0}>
         <table className="table">
           <thead>
             <tr>
@@ -95,7 +89,9 @@ export default function FuelRequestsRaf() {
             {!rows.length && <tr><td colSpan={6} className="muted">Rien à viser.</td></tr>}
           </tbody>
         </table>
+        </div>
       )}
+      <RequestPagination pagination={pagination} loading={loading} error={error} onPageChange={setPage} />
 
       {view && (
         <Modal title="Détails demande carburant" onClose={() => setView(null)} width={800}>

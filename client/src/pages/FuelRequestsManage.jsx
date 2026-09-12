@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useAuth } from '../auth/AuthContext.jsx';
 import Modal from '../components/Modal.jsx';
+import RequestPagination from '../components/RequestPagination.jsx';
+import useFuelRequests from '../hooks/useFuelRequests.js';
 
 function fmtAr(n) {
   try { return new Intl.NumberFormat('fr-FR').format(Number(n || 0)) + ' Ar'; } catch { return String(n || 0) + ' Ar'; }
@@ -10,30 +12,13 @@ function fmtAr(n) {
 export default function FuelRequestsManage() {
   const { token, user } = useAuth();
   const role = user?.role;
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { rows, loading, error, pagination, setPage, reload: load } = useFuelRequests({ token, status: 'SUBMITTED' });
 
   const [view, setView] = useState(null); // {loading,data}
   const [editId, setEditId] = useState(null);
   const [edit, setEdit] = useState({ request_date: '', request_type: 'SERVICE', objet: '', amount_estimated_ar: 0, amount_estimated_words: '' });
 
   const canManage = useMemo(() => role === 'LOGISTIQUE', [role]);
-
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const d = await apiFetch('/api/requests/fuel?status=SUBMITTED', { token });
-      setRows(d.requests || []);
-    } catch (e) {
-      setError(e.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
 
   async function openView(id) {
     setView({ loading: true, data: null });
@@ -112,10 +97,11 @@ export default function FuelRequestsManage() {
   return (
     <div className="card">
       <h2>Validation carburant (Logistique)</h2>
-      {error && <div className="alert">{error}</div>}
+      {error && <div className="alert" role="alert">{error} <button type="button" className="btn btn-outline" onClick={() => load()}>Réessayer</button></div>}
       {loading ? (
         <div className="muted">Chargement...</div>
-      ) : (
+      ) : !error && (
+        <div className="tableWrap" role="region" aria-label="Demandes de carburant à valider" tabIndex={0}>
         <table className="table">
           <thead>
             <tr>
@@ -169,7 +155,9 @@ export default function FuelRequestsManage() {
             {!rows.length && <tr><td colSpan={7} className="muted">Aucune demande SUBMITTED.</td></tr>}
           </tbody>
         </table>
+        </div>
       )}
+      <RequestPagination pagination={pagination} loading={loading} error={error} onPageChange={(page) => { setEditId(null); setPage(page); }} />
 
       {view && (
         <Modal title={`Demande carburant — ${view.data?.request_no || ''}`} onClose={() => setView(null)} width={820}>

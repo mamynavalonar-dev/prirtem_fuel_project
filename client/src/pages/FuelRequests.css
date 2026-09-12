@@ -2,6 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 /* ✅ IMPORTANT : utiliser les tokens thème (light/dark) */
@@ -38,13 +39,13 @@
 .fuelFilters {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: 1fr 220px;
+  grid-template-columns: minmax(0, 1fr) 220px;
   gap: 10px;
   align-items: center;
 }
 
 .fuelSearch input{
-  width: 40%;
+  width: 100%;
   padding: 11px 12px;
   border-radius: 12px;
   border: 1px solid var(--input-border);
@@ -72,7 +73,10 @@
 .fuelTableWrap {
   margin-top: 14px;
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
   border: 1px solid var(--table-border);
 }
 
@@ -80,6 +84,7 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  min-width: 900px;
 }
 
 .fuelTable thead th {
@@ -109,8 +114,8 @@
 }
 
 /* ✅ Zebra + hover (avec tokens dark) */
-.fuelTable tbody tr:nth-child(even) td { background: rgba(24, 24, 183, 0.377); }
-.fuelTable tbody tr:hover td { background: rgba(24, 24, 183, 0.792); }
+.fuelTable tbody tr:nth-child(even) td { background: var(--table-row-alt); }
+.fuelTable tbody tr:hover td { background: var(--table-row-hover); }
 
 .fuelEmpty {
   padding: 22px !important;
@@ -131,8 +136,8 @@
 
 /* ✅ Boutons icônes (actions) */
 .iconBtn{
-  width: 42px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   border: 1px solid var(--icon-border);
   background: var(--icon-bg);
@@ -166,7 +171,7 @@
 /* Modal create */
 .fuelCreateGrid{
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -196,12 +201,13 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* Modal details */
 .fuelModalGrid{
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -217,6 +223,7 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .fuelModalActions{
@@ -225,5 +232,16 @@
   justify-content: flex-end;
 }
 .fuelModalActions .fuelPrimaryBtn{
-  width: 20%;
+  width: auto;
+  min-width: 120px;
+}
+
+@media (max-width: 1024px){
+  .fuelCreateGrid, .fuelModalGrid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px){
+  .fuelCreateGrid, .fuelModalGrid, .fuelFilters{ grid-template-columns: minmax(0, 1fr); }
+  .fuelTitle{ font-size: 26px; }
+  .fuelCard{ padding: 12px; }
+  .fuelActions > button, .fuelModalActions .fuelPrimaryBtn{ flex: 1 1 100%; }
 }
